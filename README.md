@@ -20,3 +20,7 @@ A big data pipeline for personal finance analysis and budget recommendation.
 ## Pipeline
 
 Raw CSV -> HDFS -> Hive tables -> Spark feature engineering -> Baseline saved to HDFS
+
+## Status
+
+Pipeline verified end to end - HDFS ingestion, Hive tables, Spark feature engineering complete.
