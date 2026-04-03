@@ -1,0 +1,73 @@
+services:
+  namenode:
+    image: apache/hadoop:3
+    platform: linux/amd64
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    ports:
+      - "9870:9870"
+      - "8020:8020"
+    environment:
+      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+    env_file:
+      - ./config
+    networks:
+      - hadoopnet
+
+  datanode:
+    image: apache/hadoop:3
+    platform: linux/amd64
+    command: ["hdfs", "datanode"]
+    env_file:
+      - ./config
+    networks:
+      - hadoopnet
+
+  resourcemanager:
+    image: apache/hadoop:3
+    platform: linux/amd64
+    hostname: resourcemanager
+    command: ["yarn", "resourcemanager"]
+    ports:
+      - "8088:8088"
+    env_file:
+      - ./config
+    networks:
+      - hadoopnet
+
+  nodemanager:
+    image: apache/hadoop:3
+    platform: linux/amd64
+    command: ["yarn", "nodemanager"]
+    env_file:
+      - ./config
+    networks:
+      - hadoopnet
+
+  spark:
+    image: apache/spark:3.5.0
+    platform: linux/amd64
+    environment:
+      - SPARK_NO_DAEMONIZE=true
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - hadoopnet
+
+  hive:
+    image: apache/hive:3.1.3
+    platform: linux/amd64
+    depends_on:
+      - namenode
+    ports:
+      - "10000:10000"
+      - "10002:10002"
+    environment:
+      SERVICE_NAME: hiveserver2
+    networks:
+      - hadoopnet
+
+networks:
+  hadoopnet:
