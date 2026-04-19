@@ -9,6 +9,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType
 import pandas as pd
+import numpy as np
 from prophet import Prophet
 import warnings
 warnings.filterwarnings('ignore')
@@ -52,9 +53,63 @@ user_shares = (
     .select("customer_id", "category", "share")
 )
 
+# ── Step 2b: behavior signals for personalized multiplier ────────────────────
+# recency: days since last transaction per user-category
+# frequency: transaction count per user-category vs category average
+user_behavior = df.groupBy("customer_id", "category") \
+    .agg(
+        F.max("transaction_date").alias("last_txn_date"),
+        F.count("*").alias("user_txn_count")
+    )
+
+# compute category-level mean transaction count across users
+cat_txn_stats = user_behavior.groupBy("category") \
+    .agg(F.round(F.avg("user_txn_count"), 4).alias("cat_avg_txn_count"))
+
+user_behavior = user_behavior.join(cat_txn_stats, on="category")
+
+# velocity from HDFS (already written by script 03)
+velocity_df = spark.read.csv(
+    "hdfs://namenode:8020/user/fintech/velocity/",
+    header=True, inferSchema=True
+).select("customer_id", "category", "spend_velocity")
+
+user_behavior = user_behavior.join(velocity_df, on=["customer_id", "category"], how="left")
+
 # collect both to driver — 13 category time series + 2600 user shares
 cat_daily_pd   = category_daily.toPandas()
 user_shares_pd = user_shares.toPandas()
+behavior_pd    = user_behavior.toPandas()
+
+# reference date = last date in dataset
+reference_date = pd.to_datetime(cat_daily_pd["transaction_date"]).max()
+
+# index behavior by (customer_id, category) for O(1) lookup
+behavior_pd["last_txn_date"] = pd.to_datetime(behavior_pd["last_txn_date"])
+behavior_pd["spend_velocity"] = pd.to_numeric(behavior_pd["spend_velocity"], errors="coerce")
+behavior_idx = behavior_pd.set_index(["customer_id", "category"])
+
+def behavior_multiplier(cid, cat):
+    try:
+        row = behavior_idx.loc[(cid, cat)]
+    except KeyError:
+        return 1.0
+
+    # recency: exponential decay — recent activity → higher weight
+    days_since = max((reference_date - row["last_txn_date"]).days, 0)
+    recency = max(0.3, float(np.exp(-days_since / 365.0)))
+
+    # frequency ratio: active users get higher weight, capped at 2×
+    cat_avg = float(row["cat_avg_txn_count"]) if row["cat_avg_txn_count"] > 0 else 1.0
+    freq_ratio = float(np.clip(row["user_txn_count"] / cat_avg, 0.5, 2.0))
+
+    # velocity: Q4 YoY ratio, default 1.0, clamped [0.5, 2.0]
+    vel = row["spend_velocity"]
+    velocity = float(np.clip(vel, 0.5, 2.0)) if pd.notna(vel) else 1.0
+
+    # geometric mean of all three signals, clamped to [0.3, 3.0]
+    combined = float((recency * freq_ratio * velocity) ** (1.0 / 3.0))
+    return float(np.clip(combined, 0.3, 3.0))
 
 
 # ── Step 3: run Prophet once per category ────────────────────────────────────
@@ -100,14 +155,15 @@ for category, group in cat_daily_pd.groupby('category'):
     print(f"  {category:<25}  n={n:>3}  7d=${fc[7]:>8.2f}  15d=${fc[15]:>9.2f}  30d=${fc[30]:>9.2f}")
 
 
-# ── Step 4: distribute category forecast to each user by their spend share ───
+# ── Step 4: distribute category forecast to each user by share × behavior ────
 all_results = []
 for _, row in user_shares_pd.iterrows():
     cid, cat, share = row['customer_id'], row['category'], float(row['share'])
     if cat not in category_forecasts:
         continue
+    multiplier = behavior_multiplier(cid, cat)
     for h, cat_fc in category_forecasts[cat].items():
-        all_results.append((cid, cat, h, round(cat_fc * share, 2)))
+        all_results.append((cid, cat, h, round(cat_fc * share * multiplier, 2)))
 
 results_pd = pd.DataFrame(
     all_results,

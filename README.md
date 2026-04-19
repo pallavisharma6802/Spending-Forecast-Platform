@@ -88,6 +88,14 @@ Higher MAPE categories (Gifts, Friend Activities, Personal Hygiene) are dominate
 
 ---
 
+## Personalized Forecast Distribution
+
+**Blocker**: Two users with the same historical spend share in a category received identical forecasts — a daily gym-goer and someone with one large equipment purchase looked the same to the model.
+
+**Fix**: A behavior multiplier is applied when distributing the category-level forecast to each user: `user_forecast = category_forecast × share × multiplier`. The multiplier is the geometric mean of three signals — recency (exponential decay since last transaction), frequency ratio (user's transaction count vs. category average, capped 0.5–2×), and Q4 YoY velocity (capped 0.5–2×) — clamped to [0.3, 3.0]. Active, accelerating users receive a higher forecast; dormant or decelerating users receive a lower one.
+
+---
+
 ## Collaborative Filtering
 
 User-based CF with a **65-feature matrix** per user (5 features × 13 categories):
