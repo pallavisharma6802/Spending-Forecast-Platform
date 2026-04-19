@@ -34,12 +34,12 @@ df = df.withColumnRenamed("Customer ID", "customer_id") \
 
 df = df.withColumn("transaction_date", F.to_date("transaction_date"))
 
-# ── Step 1: daily spend per CATEGORY across all users ────────────────────────
+#  Step 1: daily spend per CATEGORY across all users 
 # ~13 categories × ~730 days → rich enough for Prophet to learn real trends
 category_daily = df.groupBy("category", "transaction_date") \
                    .agg(F.round(F.sum("total_spent"), 2).alias("daily_spend"))
 
-# ── Step 2: each user's historical share per category ────────────────────────
+#  Step 2: each user's historical share per category 
 user_cat_total = df.groupBy("customer_id", "category") \
                    .agg(F.round(F.sum("total_spent"), 2).alias("user_total"))
 
@@ -53,7 +53,7 @@ user_shares = (
     .select("customer_id", "category", "share")
 )
 
-# ── Step 2b: behavior signals for personalized multiplier ────────────────────
+#  Step 2b: behavior signals for personalized multiplier 
 # recency: days since last transaction per user-category
 # frequency: transaction count per user-category vs category average
 user_behavior = df.groupBy("customer_id", "category") \
@@ -112,7 +112,7 @@ def behavior_multiplier(cid, cat):
     return float(np.clip(combined, 0.3, 3.0))
 
 
-# ── Step 3: run Prophet once per category ────────────────────────────────────
+#  Step 3: run Prophet once per category 
 def _scaled_fallback(prophet_df, horizon):
     total    = float(prophet_df['y'].sum())
     span     = max((prophet_df['ds'].max() - prophet_df['ds'].min()).days + 1, 1)
@@ -155,7 +155,7 @@ for category, group in cat_daily_pd.groupby('category'):
     print(f"  {category:<25}  n={n:>3}  7d=${fc[7]:>8.2f}  15d=${fc[15]:>9.2f}  30d=${fc[30]:>9.2f}")
 
 
-# ── Step 4: distribute category forecast to each user by share × behavior ────
+#  Step 4: distribute category forecast to each user by share × behavior 
 all_results = []
 for _, row in user_shares_pd.iterrows():
     cid, cat, share = row['customer_id'], row['category'], float(row['share'])
@@ -183,7 +183,7 @@ spark.createDataFrame(results_pd, schema=forecast_schema) \
 
 print("Forecasting complete.")
 
-# ── Forecast evaluation: train 2023, test 2024, MAPE per category ────────────
+#  Forecast evaluation: train 2023, test 2024, MAPE per category 
 print("\nEvaluating forecast accuracy (train=2023, test=2024)...")
 
 eval_results = []

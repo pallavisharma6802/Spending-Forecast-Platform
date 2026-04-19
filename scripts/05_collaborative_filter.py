@@ -13,7 +13,7 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel("ERROR")
 
-# ── Load all feature sources ──────────────────────────────────────────────────
+#  Load all feature sources 
 forecasts_pdf = spark.read.csv(
     "hdfs://namenode:8020/user/fintech/forecasts/",
     header=True, inferSchema=True
@@ -40,7 +40,7 @@ velocity_pdf["spend_velocity"] = pd.to_numeric(
     velocity_pdf["spend_velocity"], errors="coerce"
 )
 
-# ── Build per-user feature matrix ─────────────────────────────────────────────
+#  Build per-user feature matrix ─
 # Features per user-category: forecast_30d, avg_per_transaction,
 #                              num_transactions, max_30d_spend, spend_velocity
 # Final matrix shape: users × (categories × 5 features)
@@ -80,7 +80,7 @@ col_max = feature_matrix.max()
 col_range = (col_max - col_min).replace(0, 1)
 feature_norm = (feature_matrix - col_min) / col_range
 
-# ── User-user cosine similarity on rich feature space ────────────────────────
+#  User-user cosine similarity on rich feature space 
 mat = feature_norm.values
 norms = np.linalg.norm(mat, axis=1, keepdims=True)
 norms[norms == 0] = 1.0
@@ -89,7 +89,7 @@ mat_norm = mat / norms
 sim_matrix = mat_norm @ mat_norm.T
 np.fill_diagonal(sim_matrix, 0.0)
 
-# ── Generate budget caps ──────────────────────────────────────────────────────
+#  Generate budget caps 
 # Forecast column names in fc_pivot correspond to categories
 categories = [c.replace("__forecast", "") for c in fc_pivot.columns]
 users      = list(all_users)
