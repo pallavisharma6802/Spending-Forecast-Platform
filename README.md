@@ -94,6 +94,8 @@ Higher MAPE categories (Gifts, Friend Activities, Personal Hygiene) are dominate
 
 **Fix**: A behavior multiplier is applied when distributing the category-level forecast to each user: `user_forecast = category_forecast × share × multiplier`. The multiplier is the geometric mean of three signals — recency (exponential decay since last transaction), frequency ratio (user's transaction count vs. category average, capped 0.5–2×), and Q4 YoY velocity (capped 0.5–2×) — clamped to [0.3, 3.0]. Active, accelerating users receive a higher forecast; dormant or decelerating users receive a lower one.
 
+**Result**: Fitness 30-day forecasts across 195 users went from near-identical values to a range of $0.65–$469.36 (mean $93, std dev $82). A decelerating user (velocity=0.5) receives a cap ~38% lower than their raw forecast; a high-frequency user receives a proportionally higher one.
+
 ---
 
 ## Collaborative Filtering
