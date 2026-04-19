@@ -111,7 +111,13 @@ Features are min-max normalized before cosine similarity so no single feature do
 
 ---
 
-## Services
+## Live Demo
+
+**[Launch on Streamlit Cloud →](https://spending-forecast-and-recommendation-platform.streamlit.app)**
+
+The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo — no Hadoop cluster required to view results. The full distributed pipeline (HDFS, Spark, Airflow) still runs locally via Docker Compose.
+
+## Services (local cluster)
 
 | Service | URL |
 |---|---|
