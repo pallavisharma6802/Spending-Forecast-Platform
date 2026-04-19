@@ -126,6 +126,11 @@ def forecast_category(category, group):
     pdf['ds'] = pd.to_datetime(pdf['ds'])
     pdf = pdf.sort_values('ds')
 
+    # winsorize daily spend at 99th percentile — caps extreme days without
+    # removing data points; most impactful for Shopping and Personal Hygiene
+    cap_99 = pdf['y'].quantile(0.99)
+    pdf['y'] = pdf['y'].clip(upper=cap_99)
+
     try:
         m = Prophet(
             yearly_seasonality=True,   # 2 yrs of data — real seasonal signal
@@ -199,6 +204,9 @@ for category, group in cat_daily_pd.groupby("category"):
 
     if len(train) < 10 or len(actual) == 0:
         continue
+
+    cap_99 = train['y'].quantile(0.99)
+    train['y'] = train['y'].clip(upper=cap_99)
 
     try:
         m = Prophet(
