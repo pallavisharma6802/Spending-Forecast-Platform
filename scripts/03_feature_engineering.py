@@ -45,5 +45,34 @@ baseline.write.mode("overwrite").csv(
     header=True
 )
 
-print("Feature engineering complete. Baseline saved to HDFS.")
+# ── Spend velocity: Q4 YoY (Oct–Dec 2023 vs Oct–Dec 2024) ───────────────────
+# Signals whether a user is spending more or less in recent Q4 vs prior year
+df_dated = df.withColumn("transaction_date", F.to_date("transaction_date"))
+
+q4_2023 = df_dated.filter(
+    (F.year("transaction_date") == 2023) & (F.month("transaction_date") >= 10)
+).groupBy("customer_id", "category") \
+ .agg(F.round(F.sum("total_spent"), 2).alias("q4_2023_spend"))
+
+q4_2024 = df_dated.filter(
+    (F.year("transaction_date") == 2024) & (F.month("transaction_date") >= 10)
+).groupBy("customer_id", "category") \
+ .agg(F.round(F.sum("total_spent"), 2).alias("q4_2024_spend"))
+
+velocity = q4_2023.join(q4_2024, on=["customer_id", "category"], how="outer") \
+    .withColumn(
+        "spend_velocity",
+        F.when(
+            F.col("q4_2023_spend").isNull() | (F.col("q4_2023_spend") == 0), None
+        ).otherwise(
+            F.round(F.col("q4_2024_spend") / F.col("q4_2023_spend"), 4)
+        )
+    ).select("customer_id", "category", "q4_2023_spend", "q4_2024_spend", "spend_velocity")
+
+velocity.write.mode("overwrite").csv(
+    "hdfs://namenode:8020/user/fintech/velocity/",
+    header=True
+)
+
+print("Feature engineering complete. Baseline and velocity saved to HDFS.")
 spark.stop()
