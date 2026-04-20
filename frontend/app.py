@@ -18,12 +18,13 @@ def load_all():
     users      = load_json("users.json")
     categories = load_json("categories.json")
     baseline   = pd.DataFrame(load_json("baseline.json"))
+    health     = pd.DataFrame(load_json("health_scores.json"))
     forecasts  = pd.DataFrame(load_json("forecasts.json"))
     caps       = pd.DataFrame(load_json("budget_caps.json"))
-    return users, categories, baseline, forecasts, caps
+    return users, categories, baseline, health, forecasts, caps
 
 
-users, categories, df_baseline, df_forecasts, df_caps = load_all()
+users, categories, df_baseline, df_health, df_forecasts, df_caps = load_all()
 
 # cast types once
 df_baseline["total_spend"]         = df_baseline["total_spend"].astype(float)
@@ -73,16 +74,20 @@ top_category = (
 )
 max_cap = user_caps["recommended_budget_cap"].max() if not user_caps.empty else 0
 
+health_row = df_health[df_health["customer_id"] == customer_id]
+health_score = f"{health_row.iloc[0]['score']:.0f} / 100 ({health_row.iloc[0]['grade']})" \
+    if not health_row.empty else "—"
+
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Total Historical Spend", f"${total_hist:,.0f}")
 k2.metric("30-Day Forecast (all categories)", f"${total_fc30:,.0f}")
 k3.metric("Top Spending Category", top_category)
-k4.metric("Highest Budget Cap", f"${max_cap:,.0f}")
+k4.metric("Financial Health Score", health_score)
 
 st.markdown("---")
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["Spending Overview", "Prophet Forecasts", "Budget Recommendations"])
+tab1, tab2, tab3, tab4 = st.tabs(["Spending Overview", "Prophet Forecasts", "Budget Recommendations", "Financial Health"])
 
 # ── Tab 1: historical baseline ────────────────────────────────────────────────
 with tab1:
@@ -213,3 +218,127 @@ with tab3:
                 .reset_index(drop=True),
                 use_container_width=True,
             )
+
+# ── Tab 4: financial health score ─────────────────────────────────────────────
+with tab4:
+    user_health = df_health[df_health["customer_id"] == customer_id]
+
+    if user_health.empty:
+        st.info("No health score for this customer.")
+    else:
+        h = user_health.iloc[0]
+        score = float(h["score"])
+        grade = h["grade"]
+        label = h["label"]
+
+        GRADE_COLOR = {"A": "#2ecc71", "B": "#27ae60", "C": "#f39c12",
+                       "D": "#e67e22", "F": "#e74c3c"}
+        color = GRADE_COLOR.get(grade, "#95a5a6")
+
+        st.subheader(f"Financial Health — {customer_id}")
+        st.caption(
+            "Composite score across four behavioural dimensions: "
+            "spending stability, essentials coverage, month-over-month volatility, "
+            "and savings potential vs forecast."
+        )
+
+        # ── score hero ───────────────────────────────────────────────────────
+        col_score, col_dims = st.columns([1, 2])
+
+        with col_score:
+            st.markdown(
+                f"""
+                <div style="text-align:center; padding:24px; border-radius:12px;
+                            background:{color}22; border: 2px solid {color};">
+                    <div style="font-size:72px; font-weight:800; color:{color};">{score:.0f}</div>
+                    <div style="font-size:28px; font-weight:700; color:{color};">Grade {grade}</div>
+                    <div style="font-size:16px; color:#FAFAFA; margin-top:6px;">{label}</div>
+                    <div style="font-size:12px; color:#aaa; margin-top:4px;">out of 100</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("")
+            st.markdown("**Score distribution (all 200 users)**")
+            fig_hist = px.histogram(
+                df_health, x="score", nbins=20,
+                color_discrete_sequence=["#4F8BF9"],
+                labels={"score": "Health Score"},
+            )
+            fig_hist.add_vline(x=score, line_dash="dash", line_color=color,
+                               annotation_text="You", annotation_position="top right")
+            fig_hist.update_layout(showlegend=False, margin=dict(t=20, b=20, l=10, r=10),
+                                   height=220, bargap=0.05)
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+        with col_dims:
+            dims = {
+                "Stability":         float(h["stability_score"]),
+                "Essentials Ratio":  float(h["essentials_score"]),
+                "Low Volatility":    float(h["volatility_score"]),
+                "Savings Potential": float(h["savings_score"]),
+            }
+            dim_df = pd.DataFrame({
+                "Dimension": list(dims.keys()),
+                "Score":     [round(v * 100, 1) for v in dims.values()],
+            })
+
+            fig_dims = px.bar(
+                dim_df, x="Score", y="Dimension", orientation="h",
+                color="Score", color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"],
+                range_color=[0, 100],
+                title="Dimension Breakdown (0–100)",
+                labels={"Score": "Score (0–100)"},
+            )
+            fig_dims.update_layout(coloraxis_showscale=False,
+                                   yaxis={"categoryorder": "array",
+                                          "categoryarray": list(dims.keys())[::-1]},
+                                   xaxis_range=[0, 100], height=280,
+                                   margin=dict(t=40, b=20))
+            st.plotly_chart(fig_dims, use_container_width=True)
+
+            # raw signal table
+            st.markdown("**Underlying signals**")
+            signals = pd.DataFrame([{
+                "Signal":                "Spend CV (stability)",
+                "Value":                 f"{float(h['spend_cv']):.2f}",
+                "Interpretation":        "lower = more stable",
+            }, {
+                "Signal":                "Essentials ratio",
+                "Value":                 f"{float(h['essentials_ratio']):.0%}",
+                "Interpretation":        "ideal ≈ 50% on necessities",
+            }, {
+                "Signal":                "Avg MoM volatility",
+                "Value":                 f"{float(h['mom_volatility']):.1f}×",
+                "Interpretation":        "lower = smoother month-to-month",
+            }, {
+                "Signal":                "Savings gap",
+                "Value":                 f"{float(h['savings_gap']):+.0%}",
+                "Interpretation":        "positive = spending below forecast",
+            }])
+            st.dataframe(signals, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # ── population leaderboard ────────────────────────────────────────────
+        st.markdown("**Where does this user rank?**")
+        rank      = int((df_health["score"] < score).sum()) + 1
+        pct       = round((1 - (rank - 1) / len(df_health)) * 100, 1)
+        grade_dist = df_health["grade"].value_counts().sort_index()
+
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Rank", f"#{rank} of {len(df_health)}")
+        r2.metric("Better than", f"{100 - pct:.0f}% of users")
+        r3.metric("Population median score", f"{df_health['score'].median():.1f}")
+
+        fig_grades = px.bar(
+            x=grade_dist.index, y=grade_dist.values,
+            color=grade_dist.index,
+            color_discrete_map=GRADE_COLOR,
+            labels={"x": "Grade", "y": "Users"},
+            title="Grade distribution across all 200 users",
+        )
+        fig_grades.update_layout(showlegend=False, height=280,
+                                 margin=dict(t=40, b=20))
+        st.plotly_chart(fig_grades, use_container_width=True)
