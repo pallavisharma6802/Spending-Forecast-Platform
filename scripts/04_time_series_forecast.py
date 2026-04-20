@@ -23,6 +23,12 @@ import numpy as np
 import pandas as pd
 from prophet import Prophet
 
+try:
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    SARIMAX_AVAILABLE = True
+except Exception:
+    SARIMAX_AVAILABLE = False
+
 warnings.filterwarnings("ignore")
 
 CSV_PATH  = os.path.join(os.path.dirname(__file__), "..", "data", "spending_patterns_5yr.csv")
@@ -42,6 +48,7 @@ BASELINE_CATS = {
     "Housing and Utilities", "Medical/Dental", "Personal Hygiene", "Shopping",
     "Subscriptions", "Transportation", "Travel",
 }
+SARIMAX_CATS = set(BASELINE_CATS)
 
 #  Load 
 txn = pd.read_csv(CSV_PATH, parse_dates=["Transaction Date"])
@@ -159,6 +166,47 @@ def baseline_forecast_user(cid, cat, horizon_days, decay=0.15):
     return round(weighted_avg * horizon_days / 30.0, 2)
 
 
+def sarimax_forecast_category_13d(category):
+    cat_series = (
+        cat_daily[cat_daily["category"] == category]
+        .set_index("transaction_date")["daily_spend"]
+        .asfreq("D")
+        .fillna(0.0)
+        .astype(float)
+    )
+    if len(cat_series) < 60:
+        return float(cat_series.tail(30).mean() * ACTUAL_DAYS)
+
+    # Use clipped values to reduce outlier influence, mirroring Prophet preprocessing.
+    cap_99 = cat_series.quantile(0.99)
+    y = cat_series.clip(upper=cap_99)
+
+    try:
+        model = SARIMAX(
+            y,
+            order=(1, 1, 1),
+            seasonal_order=(1, 0, 1, 7),
+            trend="c",
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        fitted = model.fit(disp=False)
+        pred = fitted.forecast(steps=ACTUAL_DAYS)
+    except Exception:
+        model = SARIMAX(
+            y,
+            order=(1, 0, 0),
+            seasonal_order=(0, 0, 0, 0),
+            trend="c",
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        fitted = model.fit(disp=False)
+        pred = fitted.forecast(steps=ACTUAL_DAYS)
+
+    return float(np.clip(np.asarray(pred), 0, None).sum())
+
+
 #  Prophet: fit on ≤2024, forecast Jan 1–15 2025 
 def _scaled_fallback(pdf, horizon):
     total = float(pdf["y"].sum())
@@ -241,6 +289,10 @@ print(f"\nSaved {len(results_df):,} forecast rows → {OUT_JSON}")
 print(f"\n{'='*68}")
 print(f"VALIDATION: model forecast (Jan 1–13) vs actual Jan 1–13 2025")
 print(f"{'='*68}")
+if SARIMAX_AVAILABLE:
+    print("Including SARIMAX comparison on baseline-routed categories.")
+else:
+    print("SARIMAX unavailable (statsmodels not installed); skipping SARIMAX comparison.")
 
 # Actual Jan 1–13 category-level spend
 actual_cat = (
@@ -251,7 +303,24 @@ actual_cat = (
 
 eval_rows = []
 
+
+def append_eval_row(category, model_name, pred_13d, actual_13d):
+    ae = abs(pred_13d - actual_13d)
+    ape = ae / max(actual_13d, 1) * 100
+    eval_rows.append({
+        "category": category,
+        "model": model_name,
+        "actual_13d": round(actual_13d, 2),
+        "pred_13d": round(pred_13d, 2),
+        "error": round(pred_13d - actual_13d, 2),
+        "abs_error": round(ae, 2),
+        "ape_pct": round(ape, 1),
+    })
+
 for cat, group in cat_daily.groupby("category"):
+    actual_row = actual_cat[actual_cat["category"] == cat]
+    actual_13d = float(actual_row["actual_13d"].values[0]) if not actual_row.empty else 0.0
+
     #  Prophet categories 
     if cat in PROPHET_CATS:
         pdf = (
@@ -281,10 +350,10 @@ for cat, group in cat_daily.groupby("category"):
             span  = max((pdf["ds"].max() - pdf["ds"].min()).days + 1, 1)
             pred_13d = total / span * ACTUAL_DAYS
 
-        model = "prophet"
+        append_eval_row(cat, "prophet", pred_13d, actual_13d)
 
     #  Baseline categories ─
-    elif cat in BASELINE_CATS:
+    if cat in BASELINE_CATS:
         # aggregate to category level (all users) then recency-weight
         cat_monthly = (
             user_monthly[user_monthly["category"] == cat]
@@ -298,27 +367,14 @@ for cat, group in cat_daily.groupby("category"):
         cat_monthly["weight"]     = np.exp(-0.15 * cat_monthly["months_ago"])
         weighted_avg = float(np.average(cat_monthly["monthly_spend"], weights=cat_monthly["weight"]))
         pred_13d = weighted_avg * ACTUAL_DAYS / 30.0
-        model = "baseline"
+        append_eval_row(cat, "baseline", pred_13d, actual_13d)
 
-    else:
-        continue
-
-    actual_row = actual_cat[actual_cat["category"] == cat]
-    actual_13d = float(actual_row["actual_13d"].values[0]) if not actual_row.empty else 0.0
-
-    ae   = abs(pred_13d - actual_13d)
-    se   = (pred_13d - actual_13d) ** 2
-    ape  = ae / max(actual_13d, 1) * 100
-
-    eval_rows.append({
-        "category":    cat,
-        "model":       model,
-        "actual_13d":  round(actual_13d, 2),
-        "pred_13d":    round(pred_13d, 2),
-        "error":       round(pred_13d - actual_13d, 2),
-        "abs_error":   round(ae, 2),
-        "ape_pct":     round(ape, 1),
-    })
+    if SARIMAX_AVAILABLE and cat in SARIMAX_CATS:
+        try:
+            pred_13d = sarimax_forecast_category_13d(cat)
+            append_eval_row(cat, "sarimax", pred_13d, actual_13d)
+        except Exception:
+            pass
 
 eval_df = pd.DataFrame(eval_rows).sort_values("ape_pct")
 
@@ -354,21 +410,30 @@ print("-" * 88)
 clean = eval_df[~eval_df["category"].isin(SUSPECT_CATS)]
 dirty = eval_df[eval_df["category"].isin(SUSPECT_CATS)]
 
-print(f"\n All categories (n={len(eval_df)}) ─")
-print(f"  Prophet  mean APE : {eval_df[eval_df['model']=='prophet']['ape_pct'].mean():.1f}%")
-print(f"  Baseline mean APE : {eval_df[eval_df['model']=='baseline']['ape_pct'].mean():.1f}%")
-print(f"  Overall  mean APE : {eval_df['ape_pct'].mean():.1f}%")
-mae_all  = eval_df["abs_error"].mean()
-rmse_all = float(np.sqrt((eval_df["error"] ** 2).mean()))
-print(f"  MAE  : ${mae_all:,.0f}    RMSE : ${rmse_all:,.0f}")
 
-print(f"\n Clean categories only (n={len(clean)}, excludes {sorted(SUSPECT_CATS)}) ")
-print(f"  Prophet  mean APE : {clean[clean['model']=='prophet']['ape_pct'].mean():.1f}%")
-print(f"  Baseline mean APE : {clean[clean['model']=='baseline']['ape_pct'].mean():.1f}%")
-print(f"  Overall  mean APE : {clean['ape_pct'].mean():.1f}%")
-mae_clean  = clean["abs_error"].mean()
-rmse_clean = float(np.sqrt((clean["error"] ** 2).mean()))
-print(f"  MAE  : ${mae_clean:,.0f}    RMSE : ${rmse_clean:,.0f}")
+def print_metric_block(label, metric_df):
+    print(f"\n {label} (n={len(metric_df)}) ─")
+    for model_name in sorted(metric_df["model"].unique()):
+        mdf = metric_df[metric_df["model"] == model_name]
+        wape = (mdf["abs_error"].sum() / max(mdf["actual_13d"].sum(), 1)) * 100
+        rmse = float(np.sqrt((mdf["error"] ** 2).mean()))
+        print(f"  {model_name:<8} mean APE : {mdf['ape_pct'].mean():>6.1f}%   WAPE : {wape:>6.1f}%   RMSE : ${rmse:>8,.0f}")
+
+    overall_rmse = float(np.sqrt((metric_df["error"] ** 2).mean()))
+    print(f"  overall  mean APE : {metric_df['ape_pct'].mean():>6.1f}%   MAE  : ${metric_df['abs_error'].mean():>8,.0f}   RMSE : ${overall_rmse:>8,.0f}")
+
+
+print_metric_block("All categories", eval_df)
+print_metric_block(f"Clean categories only, excludes {sorted(SUSPECT_CATS)}", clean)
+
+if len(clean) > 0:
+    winners = (
+        clean.sort_values(["category", "ape_pct"])
+        .groupby("category", as_index=False)
+        .first()[["category", "model", "ape_pct"]]
+    )
+    print("\n Per-category winner on clean set (lowest APE) ─")
+    print(winners["model"].value_counts().to_string())
 
 if not dirty.empty:
     print(f"\n Suspect categories (training avg/txn vs Jan-2025 avg/txn) ─")
