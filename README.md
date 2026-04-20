@@ -1,6 +1,14 @@
 # Spending Forecast and Recommendation Platform
 
-A distributed data platform built on a local Hadoop cluster that ingests transaction data, analyzes spending patterns, forecasts future spend using Facebook Prophet, and recommends personalized budget caps per user via collaborative filtering.
+A distributed data platform built on a local Hadoop cluster that ingests transaction data, engineers behavioral features with Spark, forecasts future spend using a hybrid Prophet + recency-weighted baseline model, and recommends personalized budget caps via collaborative filtering.
+
+---
+
+## Live Demo
+
+**[Launch on Streamlit Cloud →](https://spending-forecast-and-recommendation-platform.streamlit.app)**
+
+The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo — no Hadoop cluster required to view results. The full distributed pipeline runs locally via Docker Compose.
 
 ---
 
@@ -10,9 +18,8 @@ A distributed data platform built on a local Hadoop cluster that ingests transac
 |---|---|
 | Storage | HDFS, Apache Hive |
 | Batch processing | Apache Spark, Hadoop MapReduce |
-| Forecasting | Facebook Prophet |
+| Forecasting | Facebook Prophet + recency-weighted baseline (hybrid) |
 | Recommendation | User-based Collaborative Filtering |
-| Orchestration | Apache Airflow |
 | Serving | FastAPI, Streamlit |
 | Infrastructure | Docker Compose |
 
@@ -21,7 +28,7 @@ A distributed data platform built on a local Hadoop cluster that ingests transac
 ## Architecture
 
 ```
-Raw CSV (10K transactions, 200 users, 13 categories)
+Raw CSV (23K transactions, 200 users, 13 categories, 2020–2024)
     │
     ▼
 HDFS /user/fintech/transactions/
@@ -39,12 +46,14 @@ HDFS /user/fintech/transactions/
     │       → /user/fintech/baseline/
     │       → /user/fintech/velocity/
     │
-    ├──▶ Prophet Forecasting (04)
-    │       Trains on daily category spend (470–500 points per category)
-    │       Distributes forecast to each user by their historical spend share
-    │       Evaluates accuracy: train 2023, test 2024, MAPE per category
+    ├──▶ Hybrid Forecasting (04)
+    │       Prophet (seasonal categories): category-level daily spend,
+    │         5yr history, winsorized at 99th percentile
+    │         → distributed to users via spend share × behavior multiplier
+    │       Baseline (irregular categories): per-user recency-weighted
+    │         monthly average × velocity adjustment
     │       → /user/fintech/forecasts/          (7 / 15 / 30-day horizons)
-    │       → /user/fintech/forecast_eval/      (MAPE per category)
+    │       → /user/fintech/forecast_eval/      (MAPE per category + model)
     │
     └──▶ Collaborative Filtering (05)
             Feature matrix: forecast + avg_txn + n_txn + max_30d + velocity
@@ -52,70 +61,81 @@ HDFS /user/fintech/transactions/
             Budget cap = (60% own + 40% CF) × velocity × 1.15 buffer
             → /user/fintech/recommendations/
 
-FastAPI  ──▶  reads all HDFS outputs via WebHDFS, serves in-memory
+FastAPI   ──▶  reads HDFS outputs via WebHDFS, serves in-memory
 Streamlit ──▶  calls FastAPI, renders spending overview / forecasts / budget caps
-Airflow  ──▶  daily DAG orchestrating the full pipeline end-to-end
 ```
 
 ---
 
 ## Dataset
 
-- **10,000 transactions**, 200 customers, 13 spending categories
-- Date range: January 2023 – December 2024
+- **23,000 transactions**, 200 customers, 13 spending categories
+- Date range: January 2020 – December 2024 (2 years real + 3 years synthetic)
+- Synthetic history generated with realistic seasonality (holiday spikes, summer travel bumps, January gym surges) and COVID-era suppression in 2020
 - Categories: Fitness, Food, Friend Activities, Gifts, Groceries, Hobbies, Housing & Utilities, Medical/Dental, Personal Hygiene, Shopping, Subscriptions, Transportation, Travel
 
 ---
 
-## Forecasting Design
+## Hybrid Forecasting Design
 
-Prophet runs at the **category level** (all users combined), not per user. Each category has 470–500 daily data points over two years — enough for Prophet to learn real seasonal patterns. Each user's forecast is then their historical spend share of that category's total forecast.
+Categories are routed to different models based on their statistical behavior:
 
-This is more statistically sound than per-user Prophet, which would have only 3–11 data points per user-category — too sparse for reliable trend detection.
+**Prophet** — categories with real repeating seasonal patterns:
+Fitness, Food, Friend Activities, Hobbies, Medical/Dental, Personal Hygiene, Shopping, Subscriptions, Transportation, Travel
 
-**Forecast accuracy (train 2023 → test 2024):**
+- Runs at the **category level** (all users combined) on 5 years of daily data
+- Winsorized at 99th percentile per category to reduce outlier influence
+- Each user's forecast = `category_forecast × spend_share × behavior_multiplier`
 
-| Category | MAPE |
-|---|---|
-| Fitness | 41.5% |
-| Travel | 55.0% |
-| Food | 76.0% |
-| Transportation | 89.2% |
-| Groceries | 94.9% |
-| Shopping | 100.0% |
+**Recency-weighted baseline** — irregular categories where Prophet overfits noise:
+Gifts, Groceries, Housing & Utilities
 
-Higher MAPE categories (Gifts, Friend Activities, Personal Hygiene) are dominated by irregular large transactions that no model can predict from prior year data.
+- Per-user monthly spend history, exponentially weighted toward recent months (λ=0.15)
+- Velocity adjustment applied on top for trend signal
+- These categories have no reliable seasonal pattern — the right tool is a stable estimate of "what does this user typically spend per month?"
+
+**Forecast accuracy (train ≤2023, test=2024):**
+
+| Category | Model | MAPE |
+|---|---|---|
+| Groceries | Baseline | 20.4% |
+| Housing & Utilities | Baseline | 21.6% |
+| Subscriptions | Prophet | 30.6% |
+| Gifts | Baseline | 37.1% |
+| Travel | Prophet | 56.1% |
+| Shopping | Prophet | 68.9% |
+| Medical/Dental | Prophet | 72.1% |
+| Hobbies | Prophet | 76.5% |
+| Friend Activities | Prophet | 85.0% |
+| Fitness | Prophet | 94.1% |
+| Food | Prophet | 95.3% |
+| Transportation | Prophet | 121.0% |
+| **Overall mean** | | **95.5%** |
 
 ---
 
 ## Personalized Forecast Distribution
 
-**Blocker**: Two users with the same historical spend share in a category received identical forecasts — a daily gym-goer and someone with one large equipment purchase looked the same to the model.
+**Blocker**: Two users with the same historical spend share got identical forecasts — a daily gym-goer and someone with one large equipment purchase looked the same.
 
-**Fix**: A behavior multiplier is applied when distributing the category-level forecast to each user: `user_forecast = category_forecast × share × multiplier`. The multiplier is the geometric mean of three signals — recency (exponential decay since last transaction), frequency ratio (user's transaction count vs. category average, capped 0.5–2×), and Q4 YoY velocity (capped 0.5–2×) — clamped to [0.3, 3.0]. Active, accelerating users receive a higher forecast; dormant or decelerating users receive a lower one.
+**Fix**: A behavior multiplier is applied to Prophet-category forecasts: `user_forecast = category_forecast × share × multiplier`. The multiplier is the geometric mean of recency (exponential decay since last transaction), frequency ratio (user's transaction count vs. category average), and Q4 YoY velocity — clamped to [0.3, 3.0].
 
-**Result**: Fitness 30-day forecasts across 195 users went from near-identical values to a range of $0.65–$469.36 (mean $93, std dev $82). A decelerating user (velocity=0.5) receives a cap ~38% lower than their raw forecast; a high-frequency user receives a proportionally higher one.
+**Result**: Fitness 30-day forecasts across 195 users range $0.65–$469 (std dev = 88% of mean). A decelerating user (velocity=0.5) receives a cap ~38% lower than their raw forecast.
 
 ---
 
 ## Collaborative Filtering
 
 User-based CF with a **65-feature matrix** per user (5 features × 13 categories):
-- `forecast_30d` — Prophet 30-day forecast
+- `forecast_30d` — 30-day forecast (Prophet or baseline)
 - `avg_per_transaction` — historical average transaction size
 - `num_transactions` — transaction frequency
 - `max_30d_spend` — peak 30-day spend
 - `spend_velocity` — Q4 YoY spend ratio (accelerating or decelerating)
 
-Features are min-max normalized before cosine similarity so no single feature dominates. Top-10 nearest neighbors are used. Budget cap = blended forecast adjusted by velocity × 15% safety buffer.
+Features are min-max normalized before cosine similarity so no single feature dominates. Top-10 nearest neighbors. Budget cap = (60% own + 40% CF) × velocity × 1.15 safety buffer.
 
 ---
-
-## Live Demo
-
-**[Launch on Streamlit Cloud →](https://spending-forecast-and-recommendation-platform.streamlit.app)**
-
-The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo — no Hadoop cluster required to view results. The full distributed pipeline (HDFS, Spark, Airflow) still runs locally via Docker Compose.
 
 ## Services (local cluster)
 
@@ -123,7 +143,6 @@ The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) 
 |---|---|
 | Streamlit dashboard | http://localhost:8501 |
 | FastAPI + docs | http://localhost:8000/docs |
-| Airflow UI | http://localhost:8085 (admin / admin) |
 | HDFS NameNode | http://localhost:9870 |
 | Spark Master | http://localhost:8080 |
 | YARN ResourceManager | http://localhost:8088 |
@@ -138,17 +157,20 @@ The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) 
 docker compose up -d
 ```
 
-First run builds the Airflow image (~3 min). All services: Hadoop, Hive, Spark, Airflow, FastAPI, Streamlit, Postgres.
+Starts: Hadoop (namenode, datanode, resourcemanager, nodemanager), Hive, Spark, FastAPI, Streamlit.
 
-### 2. Load data into HDFS (one-time)
+### 2. Generate and load data (one-time)
 
 ```bash
-docker cp data/spending_patterns_detailed.csv fintech-spending-analyzer-namenode-1:/tmp/
+# Generate 5-year dataset with synthetic history
+python3 scripts/00_generate_synthetic_history.py
 
+# Upload to HDFS
+docker cp data/spending_patterns_5yr.csv fintech-spending-analyzer-namenode-1:/tmp/
 docker exec fintech-spending-analyzer-namenode-1 bash -c "
   hdfs dfs -mkdir -p /user/fintech/transactions
   hdfs dfs -chmod -R 777 /user/fintech
-  hdfs dfs -put -f /tmp/spending_patterns_detailed.csv /user/fintech/transactions/
+  hdfs dfs -put -f /tmp/spending_patterns_5yr.csv /user/fintech/transactions/
 "
 ```
 
@@ -159,25 +181,17 @@ docker exec -it fintech-spending-analyzer-hive-1 \
   beeline -u jdbc:hive2://localhost:10000 -f /tmp/02_create_hive_tables.sql
 ```
 
-### 4. Install Python dependencies in Spark container (one-time)
+### 4. Run the pipeline
 
 ```bash
-docker exec -u root fintech-spending-analyzer-spark-1 \
-  pip install prophet pandas numpy pyarrow
-```
-
-### 5. Run the pipeline manually
-
-```bash
-# Feature engineering + velocity
+# Feature engineering (Spark)
 docker exec fintech-spending-analyzer-spark-1 bash -c "
   export SPARK_HOME=/opt/spark
   export PYTHONPATH=\$SPARK_HOME/python:\$SPARK_HOME/python/lib/py4j-0.10.9.7-src.zip
   python3 /tmp/03_feature_engineering.py
 "
 
-# Prophet forecasting + MAPE evaluation
-# (runs in the API container — native ARM64, no Stan crashes)
+# Hybrid forecasting — runs in API container (native ARM64 for Prophet)
 docker exec fintech-spending-analyzer-api-1 bash -c "
   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
   python3 /tmp/04_time_series_forecast.py
@@ -193,15 +207,11 @@ docker exec fintech-spending-analyzer-api-1 bash -c "
 bash scripts/06_run_mapreduce.sh
 ```
 
-### 6. Reload API cache
+### 5. Reload API cache
 
 ```bash
 curl -X POST http://localhost:8000/reload
 ```
-
-### 7. Automated daily pipeline via Airflow
-
-Open http://localhost:8085, log in as admin/admin, enable the `fintech_spending_pipeline` DAG. It runs daily and executes the full pipeline in dependency order.
 
 ---
 
@@ -211,7 +221,7 @@ Open http://localhost:8085, log in as admin/admin, enable the `fintech_spending_
 |---|---|---|
 | GET | `/users` | List all customer IDs |
 | GET | `/users/{id}/baseline` | Historical spend by category |
-| GET | `/users/{id}/forecasts` | Prophet forecasts (7/15/30-day) |
+| GET | `/users/{id}/forecasts` | Forecasts (7/15/30-day) |
 | GET | `/users/{id}/budget-caps` | CF budget recommendations |
 | GET | `/categories` | All spending categories |
 | POST | `/reload` | Refresh in-memory cache from HDFS |
@@ -222,27 +232,26 @@ Open http://localhost:8085, log in as admin/admin, enable the `fintech_spending_
 
 ```
 ├── data/
-│   └── spending_patterns_detailed.csv
+│   └── spending_patterns_detailed.csv    # original 2yr real data (gitignored)
 ├── scripts/
+│   ├── 00_generate_synthetic_history.py  # extends dataset to 5yr with seasonality
 │   ├── 01_load_to_hdfs.sh
 │   ├── 02_create_hive_tables.sql
-│   ├── 03_feature_engineering.py     # Spark — baseline + velocity features
-│   ├── 04_time_series_forecast.py    # Prophet — category forecasts + MAPE eval
-│   ├── 05_collaborative_filter.py    # User-based CF — budget caps
-│   ├── 06_mapreduce_mapper.py        # Hadoop Streaming mapper
-│   ├── 06_mapreduce_reducer.py       # Hadoop Streaming reducer
-│   └── 06_run_mapreduce.sh           # Runs the MapReduce job
+│   ├── 03_feature_engineering.py         # Spark — rolling windows + velocity
+│   ├── 04_time_series_forecast.py        # hybrid Prophet + baseline forecasting
+│   ├── 05_collaborative_filter.py        # user-based CF — budget caps
+│   ├── 06_mapreduce_mapper.py
+│   ├── 06_mapreduce_reducer.py
+│   └── 06_run_mapreduce.sh
 ├── api/
-│   ├── main.py                       # FastAPI serving layer
+│   ├── main.py                           # FastAPI serving layer
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
-│   ├── app.py                        # Streamlit dashboard
+│   ├── app.py                            # Streamlit dashboard
+│   ├── data/                             # pre-computed JSON for live demo
 │   ├── requirements.txt
 │   └── Dockerfile
-├── dags/
-│   └── fintech_pipeline_dag.py       # Airflow DAG
-├── Dockerfile.airflow
 ├── docker-compose.yml
-└── config                            # Hadoop cluster config
+└── config                                # Hadoop cluster config
 ```
