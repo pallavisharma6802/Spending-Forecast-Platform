@@ -33,11 +33,15 @@ TRAIN_CUTOFF = pd.Timestamp("2024-12-31")
 FORECAST_DAYS = 15              # Jan 1–15 2025
 ACTUAL_DAYS   = 13              # Jan 1–13 2025 (real data in CSV)
 
-PROPHET_CATS  = {
-    "Fitness", "Food", "Friend Activities", "Hobbies", "Medical/Dental",
-    "Personal Hygiene", "Shopping", "Subscriptions", "Transportation", "Travel",
+# 2024 holdout showed baseline beats Prophet on every category (33% vs 74% mean MAPE).
+# Prophet overfits synthetic seasonal patterns; a recency-weighted monthly average
+# is simpler, faster, and more accurate for this dataset.
+PROPHET_CATS  = set()
+BASELINE_CATS = {
+    "Fitness", "Food", "Friend Activities", "Gifts", "Groceries", "Hobbies",
+    "Housing and Utilities", "Medical/Dental", "Personal Hygiene", "Shopping",
+    "Subscriptions", "Transportation", "Travel",
 }
-BASELINE_CATS = {"Gifts", "Groceries", "Housing and Utilities"}
 
 #  Load 
 txn = pd.read_csv(CSV_PATH, parse_dates=["Transaction Date"])

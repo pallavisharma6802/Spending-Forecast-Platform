@@ -76,41 +76,43 @@ Streamlit ──▶  calls FastAPI, renders spending overview / forecasts / budg
 
 ---
 
-## Hybrid Forecasting Design
+## Forecasting Design
 
-Categories are routed to different models based on their statistical behavior:
+All 13 categories use a **recency-weighted baseline** model. A head-to-head 2024 holdout
+(train ≤2023) showed Prophet was outperformed by the baseline on every single category —
+Prophet overfit the synthetic January seasonality patterns rather than learning genuine
+signal, while the baseline correctly captures each user's recent spending level.
 
-**Prophet** — categories with real repeating seasonal patterns:
-Fitness, Food, Friend Activities, Hobbies, Medical/Dental, Personal Hygiene, Shopping, Subscriptions, Transportation, Travel
+**Recency-weighted baseline** — per-user monthly spend history, exponentially weighted
+toward recent months (λ=0.15), with a Q4 YoY velocity adjustment on top:
 
-- Runs at the **category level** (all users combined) on 5 years of daily data
-- Winsorized at 99th percentile per category to reduce outlier influence
-- Each user's forecast = `category_forecast × spend_share × behavior_multiplier`
+- `forecast = weighted_monthly_avg × (horizon_days / 30) × velocity`
+- Recency decay: last month weight=1.0, 6mo ago=0.41, 12mo ago=0.17
+- Velocity = Q4-2024 / Q4-2023 spend ratio, clamped to [0.5, 2.0]
 
-**Recency-weighted baseline** — irregular categories where Prophet overfits noise:
-Gifts, Groceries, Housing & Utilities
+**Model selection (2024 holdout, train ≤2023):**
 
-- Per-user monthly spend history, exponentially weighted toward recent months (λ=0.15)
-- Velocity adjustment applied on top for trend signal
-- These categories have no reliable seasonal pattern — the right tool is a stable estimate of "what does this user typically spend per month?"
+A head-to-head evaluation of Prophet vs recency-weighted baseline on every category showed
+baseline outperforming Prophet on all 13 categories. Prophet overfit synthetic seasonal
+patterns that don't generalise well at the monthly aggregation level. All categories now
+use the baseline model.
 
-**Forecast accuracy (train ≤2023, test=2024):**
-
-| Category | Model | MAPE |
-|---|---|---|
-| Groceries | Baseline | 20.4% |
-| Housing & Utilities | Baseline | 21.6% |
-| Subscriptions | Prophet | 30.6% |
-| Gifts | Baseline | 37.1% |
-| Travel | Prophet | 56.1% |
-| Shopping | Prophet | 68.9% |
-| Medical/Dental | Prophet | 72.1% |
-| Hobbies | Prophet | 76.5% |
-| Friend Activities | Prophet | 85.0% |
-| Fitness | Prophet | 94.1% |
-| Food | Prophet | 95.3% |
-| Transportation | Prophet | 121.0% |
-| **Overall mean** | | **95.5%** |
+| Category | MAPE (2024 holdout) |
+|---|---|
+| Subscriptions | 13.6% |
+| Shopping | 18.7% |
+| Medical/Dental | 17.1% |
+| Fitness | 20.0% |
+| Groceries | 20.0% |
+| Friend Activities | 22.2% |
+| Housing & Utilities | 19.4% |
+| Travel | 27.2% |
+| Hobbies | 26.3% |
+| Gifts | 36.4% |
+| Transportation | 46.0% |
+| Food | 47.6% |
+| Personal Hygiene | 120.1% |
+| **Overall mean** | | **33.4%** |
 
 ---
 

@@ -6,42 +6,6 @@
   "pace_factor": 2.385,
   "alerts": [
     {
-      "customer_id": "CUST_0053",
-      "category": "Travel",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 1013.88,
-      "projected_spend": 2417.71,
-      "budget_cap": 65.58,
-      "overage_pct": 3586.9,
-      "z_score": 85.976,
-      "if_score": -0.5549,
-      "hist_mean": 65.58,
-      "hist_std": 27.36,
-      "message": "On pace to exceed travel cap by 3587%; spend 86.0\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0100",
-      "category": "Friend Activities",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 217.95,
-      "projected_spend": 519.73,
-      "budget_cap": 26.12,
-      "overage_pct": 1889.4,
-      "z_score": 19.781,
-      "if_score": -0.4541,
-      "hist_mean": 26.12,
-      "hist_std": 24.95,
-      "message": "On pace to exceed friend activities cap by 1889%; spend 19.8\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0142",
       "category": "Fitness",
       "severity": "high",
@@ -59,6 +23,24 @@
       "hist_mean": 199.67,
       "hist_std": 221.43,
       "message": "On pace to exceed fitness cap by 1725%; spend 15.6\u03c3 above historical average; unusual spending pattern detected"
+    },
+    {
+      "customer_id": "CUST_0053",
+      "category": "Travel",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 1013.88,
+      "projected_spend": 2417.71,
+      "budget_cap": 200.62,
+      "overage_pct": 1105.1,
+      "z_score": 85.976,
+      "if_score": -0.5549,
+      "hist_mean": 65.58,
+      "hist_std": 27.36,
+      "message": "On pace to exceed travel cap by 1105%; spend 86.0\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0058",
@@ -79,24 +61,6 @@
       "message": "On pace to exceed groceries cap by 825%; spend 39.1\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0165",
-      "category": "Travel",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 615.7,
-      "projected_spend": 1468.21,
-      "budget_cap": 165.98,
-      "overage_pct": 784.6,
-      "z_score": 11.493,
-      "if_score": -0.4619,
-      "hist_mean": 165.98,
-      "hist_std": 113.3,
-      "message": "On pace to exceed travel cap by 785%; spend 11.5\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0087",
       "category": "Gifts",
       "severity": "high",
@@ -106,31 +70,13 @@
       ],
       "current_spend": 759.13,
       "projected_spend": 1810.23,
-      "budget_cap": 224.69,
-      "overage_pct": 705.7,
+      "budget_cap": 227.63,
+      "overage_pct": 695.3,
       "z_score": 21.119,
       "if_score": -0.4747,
       "hist_mean": 108.9,
       "hist_std": 80.56,
-      "message": "On pace to exceed gifts cap by 706%; spend 21.1\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0183",
-      "category": "Food",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 265.69,
-      "projected_spend": 633.57,
-      "budget_cap": 84.33,
-      "overage_pct": 651.3,
-      "z_score": 6.836,
-      "if_score": -0.4006,
-      "hist_mean": 84.33,
-      "hist_std": 80.35,
-      "message": "On pace to exceed food cap by 651%; spend 6.8\u03c3 above historical average"
+      "message": "On pace to exceed gifts cap by 695%; spend 21.1\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0191",
@@ -169,24 +115,6 @@
       "message": "On pace to exceed groceries cap by 602%; spend 10.7\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0038",
-      "category": "Friend Activities",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 113.19,
-      "projected_spend": 269.91,
-      "budget_cap": 38.97,
-      "overage_pct": 592.6,
-      "z_score": 7.325,
-      "if_score": -0.3764,
-      "hist_mean": 38.97,
-      "hist_std": 31.53,
-      "message": "On pace to exceed friend activities cap by 593%; spend 7.3\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0053",
       "category": "Personal Hygiene",
       "severity": "high",
@@ -205,6 +133,24 @@
       "message": "On pace to exceed personal hygiene cap by 583%; spend 5.2\u03c3 above historical average"
     },
     {
+      "customer_id": "CUST_0100",
+      "category": "Friend Activities",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 217.95,
+      "projected_spend": 519.73,
+      "budget_cap": 76.93,
+      "overage_pct": 575.6,
+      "z_score": 19.781,
+      "if_score": -0.4541,
+      "hist_mean": 26.12,
+      "hist_std": 24.95,
+      "message": "On pace to exceed friend activities cap by 576%; spend 19.8\u03c3 above historical average"
+    },
+    {
       "customer_id": "CUST_0138",
       "category": "Fitness",
       "severity": "high",
@@ -221,6 +167,42 @@
       "hist_mean": 237.63,
       "hist_std": 157.08,
       "message": "On pace to exceed fitness cap by 519%; spend 7.9\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0183",
+      "category": "Food",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 265.69,
+      "projected_spend": 633.57,
+      "budget_cap": 102.4,
+      "overage_pct": 518.7,
+      "z_score": 6.836,
+      "if_score": -0.4006,
+      "hist_mean": 84.33,
+      "hist_std": 80.35,
+      "message": "On pace to exceed food cap by 519%; spend 6.8\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0038",
+      "category": "Friend Activities",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 113.19,
+      "projected_spend": 269.91,
+      "budget_cap": 46.16,
+      "overage_pct": 484.7,
+      "z_score": 7.325,
+      "if_score": -0.3764,
+      "hist_mean": 38.97,
+      "hist_std": 31.53,
+      "message": "On pace to exceed friend activities cap by 485%; spend 7.3\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0103",
@@ -296,6 +278,24 @@
       "message": "On pace to exceed hobbies cap by 436%; spend 7.3\u03c3 above historical average"
     },
     {
+      "customer_id": "CUST_0185",
+      "category": "Gifts",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 1155.38,
+      "projected_spend": 2755.14,
+      "budget_cap": 525.14,
+      "overage_pct": 424.6,
+      "z_score": 8.815,
+      "if_score": -0.5653,
+      "hist_mean": 362.25,
+      "hist_std": 271.47,
+      "message": "On pace to exceed gifts cap by 425%; spend 8.8\u03c3 above historical average"
+    },
+    {
       "customer_id": "CUST_0012",
       "category": "Subscriptions",
       "severity": "high",
@@ -312,24 +312,6 @@
       "hist_mean": 15.48,
       "hist_std": 10.38,
       "message": "On pace to exceed subscriptions cap by 424%; spend 11.1\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0185",
-      "category": "Gifts",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 1155.38,
-      "projected_spend": 2755.14,
-      "budget_cap": 526.38,
-      "overage_pct": 423.4,
-      "z_score": 8.815,
-      "if_score": -0.5653,
-      "hist_mean": 362.25,
-      "hist_std": 271.47,
-      "message": "On pace to exceed gifts cap by 423%; spend 8.8\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0016",
@@ -386,24 +368,6 @@
       "message": "On pace to exceed friend activities cap by 396%; spend 6.6\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0173",
-      "category": "Transportation",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 99.62,
-      "projected_spend": 237.56,
-      "budget_cap": 48.96,
-      "overage_pct": 385.3,
-      "z_score": 4.136,
-      "if_score": -0.3757,
-      "hist_mean": 48.96,
-      "hist_std": 45.6,
-      "message": "On pace to exceed transportation cap by 385%; spend 4.1\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0006",
       "category": "Shopping",
       "severity": "high",
@@ -451,13 +415,13 @@
       ],
       "current_spend": 221.31,
       "projected_spend": 527.74,
-      "budget_cap": 113.84,
-      "overage_pct": 363.6,
+      "budget_cap": 115.68,
+      "overage_pct": 356.2,
       "z_score": 3.614,
       "if_score": -0.3991,
       "hist_mean": 113.84,
       "hist_std": 114.54,
-      "message": "On pace to exceed food cap by 364%; spend 3.6\u03c3 above historical average"
+      "message": "On pace to exceed food cap by 356%; spend 3.6\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0060",
@@ -478,42 +442,6 @@
       "message": "On pace to exceed groceries cap by 328%; spend 8.6\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0128",
-      "category": "Hobbies",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 180.11,
-      "projected_spend": 429.49,
-      "budget_cap": 100.92,
-      "overage_pct": 325.6,
-      "z_score": 3.932,
-      "if_score": -0.4066,
-      "hist_mean": 100.92,
-      "hist_std": 83.56,
-      "message": "On pace to exceed hobbies cap by 326%; spend 3.9\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0058",
-      "category": "Hobbies",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 179.93,
-      "projected_spend": 429.06,
-      "budget_cap": 106.91,
-      "overage_pct": 301.3,
-      "z_score": 6.543,
-      "if_score": -0.3903,
-      "hist_mean": 106.91,
-      "hist_std": 49.24,
-      "message": "On pace to exceed hobbies cap by 301%; spend 6.5\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0056",
       "category": "Shopping",
       "severity": "high",
@@ -531,6 +459,24 @@
       "hist_mean": 1828.83,
       "hist_std": 1602.0,
       "message": "On pace to exceed shopping cap by 291%; spend 3.3\u03c3 above historical average; unusual spending pattern detected"
+    },
+    {
+      "customer_id": "CUST_0165",
+      "category": "Travel",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 615.7,
+      "projected_spend": 1468.21,
+      "budget_cap": 376.89,
+      "overage_pct": 289.6,
+      "z_score": 11.493,
+      "if_score": -0.4619,
+      "hist_mean": 165.98,
+      "hist_std": 113.3,
+      "message": "On pace to exceed travel cap by 290%; spend 11.5\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0183",
@@ -586,24 +532,6 @@
       "message": "On pace to exceed food cap by 276%; spend 3.0\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0151",
-      "category": "Food",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 91.91,
-      "projected_spend": 219.17,
-      "budget_cap": 58.97,
-      "overage_pct": 271.7,
-      "z_score": 13.3,
-      "if_score": -0.4012,
-      "hist_mean": 58.97,
-      "hist_std": 12.05,
-      "message": "On pace to exceed food cap by 272%; spend 13.3\u03c3 above historical average"
-    },
-    {
       "customer_id": "CUST_0019",
       "category": "Transportation",
       "severity": "high",
@@ -620,24 +548,6 @@
       "hist_mean": 61.86,
       "hist_std": 59.01,
       "message": "On pace to exceed transportation cap by 268%; spend 2.8\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0096",
-      "category": "Shopping",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 296.2,
-      "projected_spend": 706.32,
-      "budget_cap": 199.41,
-      "overage_pct": 254.2,
-      "z_score": 9.663,
-      "if_score": -0.4429,
-      "hist_mean": 199.41,
-      "hist_std": 52.46,
-      "message": "On pace to exceed shopping cap by 254%; spend 9.7\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0077",
@@ -658,40 +568,22 @@
       "message": "On pace to exceed friend activities cap by 247%; spend 3.0\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0125",
-      "category": "Subscriptions",
+      "customer_id": "CUST_0058",
+      "category": "Hobbies",
       "severity": "high",
       "triggers": [
         "z_score",
         "pace_overage"
       ],
-      "current_spend": 44.63,
-      "projected_spend": 106.43,
-      "budget_cap": 30.89,
-      "overage_pct": 244.6,
-      "z_score": 3.757,
-      "if_score": -0.3598,
-      "hist_mean": 30.89,
-      "hist_std": 20.11,
-      "message": "On pace to exceed subscriptions cap by 245%; spend 3.8\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0035",
-      "category": "Medical/Dental",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 450.34,
-      "projected_spend": 1073.89,
-      "budget_cap": 316.32,
-      "overage_pct": 239.5,
-      "z_score": 6.642,
-      "if_score": -0.4563,
-      "hist_mean": 316.32,
-      "hist_std": 114.05,
-      "message": "On pace to exceed medical/dental cap by 240%; spend 6.6\u03c3 above historical average"
+      "current_spend": 179.93,
+      "projected_spend": 429.06,
+      "budget_cap": 123.84,
+      "overage_pct": 246.5,
+      "z_score": 6.543,
+      "if_score": -0.3903,
+      "hist_mean": 106.91,
+      "hist_std": 49.24,
+      "message": "On pace to exceed hobbies cap by 246%; spend 6.5\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0016",
@@ -713,6 +605,42 @@
       "message": "On pace to exceed shopping cap by 237%; spend 3.2\u03c3 above historical average; unusual spending pattern detected"
     },
     {
+      "customer_id": "CUST_0035",
+      "category": "Medical/Dental",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 450.34,
+      "projected_spend": 1073.89,
+      "budget_cap": 328.51,
+      "overage_pct": 226.9,
+      "z_score": 6.642,
+      "if_score": -0.4563,
+      "hist_mean": 316.32,
+      "hist_std": 114.05,
+      "message": "On pace to exceed medical/dental cap by 227%; spend 6.6\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0125",
+      "category": "Subscriptions",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 44.63,
+      "projected_spend": 106.43,
+      "budget_cap": 32.82,
+      "overage_pct": 224.3,
+      "z_score": 3.757,
+      "if_score": -0.3598,
+      "hist_mean": 30.89,
+      "hist_std": 20.11,
+      "message": "On pace to exceed subscriptions cap by 224%; spend 3.8\u03c3 above historical average"
+    },
+    {
       "customer_id": "CUST_0114",
       "category": "Groceries",
       "severity": "high",
@@ -731,95 +659,40 @@
       "message": "On pace to exceed groceries cap by 215%; spend 6.0\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0118",
-      "category": "Hobbies",
+      "customer_id": "CUST_0173",
+      "category": "Transportation",
       "severity": "high",
       "triggers": [
         "z_score",
         "pace_overage"
       ],
-      "current_spend": 63.3,
-      "projected_spend": 150.95,
-      "budget_cap": 49.47,
-      "overage_pct": 205.1,
-      "z_score": 4.103,
-      "if_score": -0.3678,
-      "hist_mean": 49.47,
-      "hist_std": 24.73,
-      "message": "On pace to exceed hobbies cap by 205%; spend 4.1\u03c3 above historical average"
+      "current_spend": 99.62,
+      "projected_spend": 237.56,
+      "budget_cap": 76.16,
+      "overage_pct": 211.9,
+      "z_score": 4.136,
+      "if_score": -0.3757,
+      "hist_mean": 48.96,
+      "hist_std": 45.6,
+      "message": "On pace to exceed transportation cap by 212%; spend 4.1\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0121",
-      "category": "Subscriptions",
+      "customer_id": "CUST_0151",
+      "category": "Food",
       "severity": "high",
       "triggers": [
         "z_score",
         "pace_overage"
       ],
-      "current_spend": 31.8,
-      "projected_spend": 75.83,
-      "budget_cap": 25.0,
-      "overage_pct": 203.3,
-      "z_score": 4.997,
-      "if_score": -0.4133,
-      "hist_mean": 15.61,
+      "current_spend": 91.91,
+      "projected_spend": 219.17,
+      "budget_cap": 70.32,
+      "overage_pct": 211.7,
+      "z_score": 13.3,
+      "if_score": -0.4012,
+      "hist_mean": 58.97,
       "hist_std": 12.05,
-      "message": "On pace to exceed subscriptions cap by 203%; spend 5.0\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0175",
-      "category": "Medical/Dental",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 278.22,
-      "projected_spend": 663.45,
-      "budget_cap": 221.46,
-      "overage_pct": 199.6,
-      "z_score": 3.198,
-      "if_score": -0.4087,
-      "hist_mean": 221.46,
-      "hist_std": 138.21,
-      "message": "On pace to exceed medical/dental cap by 200%; spend 3.2\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0019",
-      "category": "Housing and Utilities",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "isolation_forest",
-        "pace_overage"
-      ],
-      "current_spend": 1962.13,
-      "projected_spend": 4678.93,
-      "budget_cap": 1631.55,
-      "overage_pct": 186.8,
-      "z_score": 3.522,
-      "if_score": -0.6345,
-      "hist_mean": 1258.58,
-      "hist_std": 971.21,
-      "message": "On pace to exceed housing and utilities cap by 187%; spend 3.5\u03c3 above historical average; unusual spending pattern detected"
-    },
-    {
-      "customer_id": "CUST_0181",
-      "category": "Personal Hygiene",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 400.0,
-      "projected_spend": 953.85,
-      "budget_cap": 334.67,
-      "overage_pct": 185.0,
-      "z_score": 4.373,
-      "if_score": -0.4449,
-      "hist_mean": 334.67,
-      "hist_std": 141.6,
-      "message": "On pace to exceed personal hygiene cap by 185%; spend 4.4\u03c3 above historical average"
+      "message": "On pace to exceed food cap by 212%; spend 13.3\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0037",
@@ -876,23 +749,22 @@
       "message": "On pace to exceed personal hygiene cap by 175%; spend 567.7\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0175",
-      "category": "Shopping",
+      "customer_id": "CUST_0121",
+      "category": "Subscriptions",
       "severity": "high",
       "triggers": [
         "z_score",
-        "isolation_forest",
         "pace_overage"
       ],
-      "current_spend": 2395.57,
-      "projected_spend": 5712.51,
-      "budget_cap": 2123.38,
-      "overage_pct": 169.0,
-      "z_score": 4.265,
-      "if_score": -0.6601,
-      "hist_mean": 2123.38,
-      "hist_std": 841.46,
-      "message": "On pace to exceed shopping cap by 169%; spend 4.3\u03c3 above historical average; unusual spending pattern detected"
+      "current_spend": 31.8,
+      "projected_spend": 75.83,
+      "budget_cap": 28.36,
+      "overage_pct": 167.4,
+      "z_score": 4.997,
+      "if_score": -0.4133,
+      "hist_mean": 15.61,
+      "hist_std": 12.05,
+      "message": "On pace to exceed subscriptions cap by 167%; spend 5.0\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0074",
@@ -913,6 +785,43 @@
       "message": "On pace to exceed groceries cap by 167%; spend 4.8\u03c3 above historical average"
     },
     {
+      "customer_id": "CUST_0057",
+      "category": "Groceries",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 52.15,
+      "projected_spend": 124.36,
+      "budget_cap": 46.83,
+      "overage_pct": 165.6,
+      "z_score": 4.842,
+      "if_score": -0.4003,
+      "hist_mean": 25.58,
+      "hist_std": 20.4,
+      "message": "On pace to exceed groceries cap by 166%; spend 4.8\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0019",
+      "category": "Housing and Utilities",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "isolation_forest",
+        "pace_overage"
+      ],
+      "current_spend": 1962.13,
+      "projected_spend": 4678.93,
+      "budget_cap": 1764.92,
+      "overage_pct": 165.1,
+      "z_score": 3.522,
+      "if_score": -0.6345,
+      "hist_mean": 1258.58,
+      "hist_std": 971.21,
+      "message": "On pace to exceed housing and utilities cap by 165%; spend 3.5\u03c3 above historical average; unusual spending pattern detected"
+    },
+    {
       "customer_id": "CUST_0050",
       "category": "Shopping",
       "severity": "high",
@@ -931,22 +840,59 @@
       "message": "On pace to exceed shopping cap by 164%; unusual spending pattern detected"
     },
     {
-      "customer_id": "CUST_0057",
-      "category": "Groceries",
+      "customer_id": "CUST_0012",
+      "category": "Gifts",
       "severity": "high",
       "triggers": [
         "z_score",
         "pace_overage"
       ],
-      "current_spend": 52.15,
-      "projected_spend": 124.36,
-      "budget_cap": 47.63,
-      "overage_pct": 161.1,
-      "z_score": 4.842,
-      "if_score": -0.4003,
-      "hist_mean": 25.58,
-      "hist_std": 20.4,
-      "message": "On pace to exceed groceries cap by 161%; spend 4.8\u03c3 above historical average"
+      "current_spend": 170.79,
+      "projected_spend": 407.27,
+      "budget_cap": 157.08,
+      "overage_pct": 159.3,
+      "z_score": 3.079,
+      "if_score": -0.3855,
+      "hist_mean": 109.33,
+      "hist_std": 96.76,
+      "message": "On pace to exceed gifts cap by 159%; spend 3.1\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0118",
+      "category": "Hobbies",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 63.3,
+      "projected_spend": 150.95,
+      "budget_cap": 59.56,
+      "overage_pct": 153.4,
+      "z_score": 4.103,
+      "if_score": -0.3678,
+      "hist_mean": 49.47,
+      "hist_std": 24.73,
+      "message": "On pace to exceed hobbies cap by 153%; spend 4.1\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0175",
+      "category": "Shopping",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "isolation_forest",
+        "pace_overage"
+      ],
+      "current_spend": 2395.57,
+      "projected_spend": 5712.51,
+      "budget_cap": 2270.09,
+      "overage_pct": 151.6,
+      "z_score": 4.265,
+      "if_score": -0.6601,
+      "hist_mean": 2123.38,
+      "hist_std": 841.46,
+      "message": "On pace to exceed shopping cap by 152%; spend 4.3\u03c3 above historical average; unusual spending pattern detected"
     },
     {
       "customer_id": "CUST_0143",
@@ -1021,6 +967,24 @@
       "message": "On pace to exceed personal hygiene cap by 138%; spend 553.9\u03c3 above historical average"
     },
     {
+      "customer_id": "CUST_0181",
+      "category": "Personal Hygiene",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 400.0,
+      "projected_spend": 953.85,
+      "budget_cap": 399.86,
+      "overage_pct": 138.5,
+      "z_score": 4.373,
+      "if_score": -0.4449,
+      "hist_mean": 334.67,
+      "hist_std": 141.6,
+      "message": "On pace to exceed personal hygiene cap by 138%; spend 4.4\u03c3 above historical average"
+    },
+    {
       "customer_id": "CUST_0114",
       "category": "Medical/Dental",
       "severity": "high",
@@ -1037,78 +1001,6 @@
       "hist_mean": 345.31,
       "hist_std": 171.44,
       "message": "On pace to exceed medical/dental cap by 135%; spend 2.7\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0024",
-      "category": "Shopping",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "isolation_forest",
-        "pace_overage"
-      ],
-      "current_spend": 3000.0,
-      "projected_spend": 7153.85,
-      "budget_cap": 3093.68,
-      "overage_pct": 131.2,
-      "z_score": 13.706,
-      "if_score": -0.6265,
-      "hist_mean": 3093.68,
-      "hist_std": 296.23,
-      "message": "On pace to exceed shopping cap by 131%; spend 13.7\u03c3 above historical average; unusual spending pattern detected"
-    },
-    {
-      "customer_id": "CUST_0012",
-      "category": "Gifts",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 170.79,
-      "projected_spend": 407.27,
-      "budget_cap": 177.41,
-      "overage_pct": 129.6,
-      "z_score": 3.079,
-      "if_score": -0.3855,
-      "hist_mean": 109.33,
-      "hist_std": 96.76,
-      "message": "On pace to exceed gifts cap by 130%; spend 3.1\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0125",
-      "category": "Fitness",
-      "severity": "high",
-      "triggers": [
-        "z_score",
-        "pace_overage"
-      ],
-      "current_spend": 744.08,
-      "projected_spend": 1774.34,
-      "budget_cap": 773.93,
-      "overage_pct": 129.3,
-      "z_score": 7.58,
-      "if_score": -0.5018,
-      "hist_mean": 286.65,
-      "hist_std": 196.25,
-      "message": "On pace to exceed fitness cap by 129%; spend 7.6\u03c3 above historical average"
-    },
-    {
-      "customer_id": "CUST_0173",
-      "category": "Personal Hygiene",
-      "severity": "high",
-      "triggers": [
-        "pace_overage"
-      ],
-      "current_spend": 48.66,
-      "projected_spend": 116.04,
-      "budget_cap": 50.84,
-      "overage_pct": 128.2,
-      "z_score": 1.964,
-      "if_score": -0.4009,
-      "hist_mean": 42.05,
-      "hist_std": 37.68,
-      "message": "On pace to exceed personal hygiene cap by 128%"
     },
     {
       "customer_id": "CUST_0106",
@@ -1147,23 +1039,6 @@
       "message": "On pace to exceed medical/dental cap by 111%; spend 4.6\u03c3 above historical average"
     },
     {
-      "customer_id": "CUST_0200",
-      "category": "Subscriptions",
-      "severity": "high",
-      "triggers": [
-        "pace_overage"
-      ],
-      "current_spend": 38.49,
-      "projected_spend": 91.78,
-      "budget_cap": 43.59,
-      "overage_pct": 110.5,
-      "z_score": 1.919,
-      "if_score": -0.3773,
-      "hist_mean": 43.59,
-      "hist_std": 25.1,
-      "message": "On pace to exceed subscriptions cap by 110%"
-    },
-    {
       "customer_id": "CUST_0118",
       "category": "Subscriptions",
       "severity": "high",
@@ -1182,6 +1057,43 @@
       "message": "On pace to exceed subscriptions cap by 89%; spend 3.1\u03c3 above historical average"
     },
     {
+      "customer_id": "CUST_0024",
+      "category": "Shopping",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "isolation_forest",
+        "pace_overage"
+      ],
+      "current_spend": 3000.0,
+      "projected_spend": 7153.85,
+      "budget_cap": 3854.95,
+      "overage_pct": 85.6,
+      "z_score": 13.706,
+      "if_score": -0.6265,
+      "hist_mean": 3093.68,
+      "hist_std": 296.23,
+      "message": "On pace to exceed shopping cap by 86%; spend 13.7\u03c3 above historical average; unusual spending pattern detected"
+    },
+    {
+      "customer_id": "CUST_0175",
+      "category": "Medical/Dental",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 278.22,
+      "projected_spend": 663.45,
+      "budget_cap": 362.24,
+      "overage_pct": 83.2,
+      "z_score": 3.198,
+      "if_score": -0.4087,
+      "hist_mean": 221.46,
+      "hist_std": 138.21,
+      "message": "On pace to exceed medical/dental cap by 83%; spend 3.2\u03c3 above historical average"
+    },
+    {
       "customer_id": "CUST_0069",
       "category": "Medical/Dental",
       "severity": "high",
@@ -1198,6 +1110,24 @@
       "hist_mean": 440.35,
       "hist_std": 121.03,
       "message": "On pace to exceed medical/dental cap by 81%; spend 2.9\u03c3 above historical average"
+    },
+    {
+      "customer_id": "CUST_0096",
+      "category": "Shopping",
+      "severity": "high",
+      "triggers": [
+        "z_score",
+        "pace_overage"
+      ],
+      "current_spend": 296.2,
+      "projected_spend": 706.32,
+      "budget_cap": 490.26,
+      "overage_pct": 44.1,
+      "z_score": 9.663,
+      "if_score": -0.4429,
+      "hist_mean": 199.41,
+      "hist_std": 52.46,
+      "message": "On pace to exceed shopping cap by 44%; spend 9.7\u03c3 above historical average"
     },
     {
       "customer_id": "CUST_0034",
