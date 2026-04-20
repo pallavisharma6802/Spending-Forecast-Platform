@@ -23,10 +23,12 @@ def load_all():
     health     = pd.DataFrame(load_json("health_scores.json"))
     forecasts  = pd.DataFrame(load_json("forecasts.json"))
     caps       = pd.DataFrame(load_json("budget_caps.json"))
-    return users, categories, baseline, health, forecasts, caps
+    anomalies  = load_json("anomalies.json")
+    return users, categories, baseline, health, forecasts, caps, anomalies
 
 
-users, categories, df_baseline, df_health, df_forecasts, df_caps = load_all()
+users, categories, df_baseline, df_health, df_forecasts, df_caps, anomaly_data = load_all()
+all_alerts     = pd.DataFrame(anomaly_data.get("alerts", []))
 
 # cast types once
 df_baseline["total_spend"]         = df_baseline["total_spend"].astype(float)
@@ -57,7 +59,7 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown("**Dataset**")
-    st.markdown("10,000 transactions · 200 users · 13 categories · 2023–2024")
+    st.markdown("23,000 transactions · 200 users · 13 categories · 2020–2024")
 
 # ── filter to selected user ───────────────────────────────────────────────────
 user_baseline  = df_baseline[df_baseline["customer_id"] == customer_id]
@@ -86,7 +88,7 @@ k4.metric("Financial Health Score", health_score)
 st.markdown("---")
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Spending Overview", "Prophet Forecasts", "Budget Recommendations", "Financial Health"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Spending Overview", "Prophet Forecasts", "Budget Recommendations", "Financial Health", "Anomaly Alerts"])
 
 # ── Tab 1: historical baseline ────────────────────────────────────────────────
 with tab1:
@@ -341,3 +343,106 @@ with tab4:
         fig_grades.update_layout(showlegend=False, height=280,
                                  margin=dict(t=40, b=20))
         st.plotly_chart(fig_grades, use_container_width=True)
+
+# ── Tab 5: anomaly alerts ─────────────────────────────────────────────────────
+with tab5:
+    meta = anomaly_data
+    st.subheader(f"Anomaly Alerts — {customer_id}")
+    st.caption(
+        f"Mid-month spend pace check for {meta.get('current_month','—')} · "
+        f"{meta.get('days_elapsed','?')}/{meta.get('days_in_month','?')} days elapsed · "
+        f"projected to month-end via {meta.get('pace_factor','?')}× pace factor. "
+        "Alerts require both a statistical signal (Z-score > 2.5 or Isolation Forest) "
+        "and a projected budget overage > 25%."
+    )
+
+    SEV_COLOR  = {"high": "#e74c3c", "medium": "#e67e22", "low": "#f1c40f"}
+    SEV_EMOJI  = {"high": "🔴", "medium": "🟠", "low": "🟡"}
+
+    user_alerts = all_alerts[all_alerts["customer_id"] == customer_id] \
+        if not all_alerts.empty else pd.DataFrame()
+
+    # ── user-level alert cards ────────────────────────────────────────────────
+    if user_alerts.empty:
+        st.success("No anomalies detected for this customer in the current period.")
+    else:
+        st.warning(f"{len(user_alerts)} alert{'s' if len(user_alerts)>1 else ''} detected for {customer_id}")
+        for _, alert in user_alerts.sort_values("overage_pct", ascending=False).iterrows():
+            sev   = alert["severity"]
+            color = SEV_COLOR.get(sev, "#888")
+            emoji = SEV_EMOJI.get(sev, "⚪")
+            with st.container():
+                st.markdown(
+                    f"""<div style="border-left:4px solid {color}; padding:10px 16px;
+                        margin-bottom:10px; border-radius:4px; background:{color}18;">
+                    <b>{emoji} {alert['category']}</b> &nbsp;·&nbsp;
+                    <span style="color:{color}; font-weight:600;">{sev.upper()}</span><br>
+                    <span style="font-size:0.9em;">{alert['message']}</span>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Spent so far",    f"${alert['current_spend']:,.0f}")
+                c2.metric("Projected (30d)", f"${alert['projected_spend']:,.0f}")
+                c3.metric("Budget cap",      f"${alert['budget_cap']:,.0f}")
+                c4.metric("Overage",         f"+{alert['overage_pct']:.0f}%",
+                          delta=f"Z = {alert['z_score']:+.1f}σ",
+                          delta_color="inverse")
+
+    st.markdown("---")
+
+    # ── platform-wide summary ─────────────────────────────────────────────────
+    st.markdown("**Platform-wide alert summary**")
+
+    if all_alerts.empty:
+        st.info("No alerts in current period.")
+    else:
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Total alerts",          len(all_alerts))
+        a2.metric("Users affected",        all_alerts["customer_id"].nunique())
+        a3.metric("High-severity alerts",  len(all_alerts[all_alerts["severity"] == "high"]))
+
+        col_cat, col_sev = st.columns(2)
+
+        with col_cat:
+            cat_counts = all_alerts["category"].value_counts().reset_index()
+            cat_counts.columns = ["category", "alerts"]
+            fig_cat = px.bar(
+                cat_counts.head(10), x="alerts", y="category",
+                orientation="h", title="Alerts by Category",
+                color="alerts", color_continuous_scale="Reds",
+            )
+            fig_cat.update_layout(coloraxis_showscale=False, height=320,
+                                  margin=dict(t=40, b=10), yaxis_title="")
+            st.plotly_chart(fig_cat, use_container_width=True)
+
+        with col_sev:
+            sev_counts = all_alerts["severity"].value_counts().reset_index()
+            sev_counts.columns = ["severity", "count"]
+            fig_sev = px.pie(
+                sev_counts, names="severity", values="count",
+                title="Alerts by Severity",
+                color="severity",
+                color_discrete_map=SEV_COLOR,
+            )
+            fig_sev.update_layout(height=320, margin=dict(t=40, b=10))
+            st.plotly_chart(fig_sev, use_container_width=True)
+
+        # top overage table
+        st.markdown("**Most at-risk users (projected overage)**")
+        top_table = (
+            all_alerts.nlargest(10, "overage_pct")
+            [["customer_id", "category", "severity", "projected_spend",
+              "budget_cap", "overage_pct", "z_score"]]
+            .rename(columns={
+                "customer_id":     "Customer",
+                "category":        "Category",
+                "severity":        "Severity",
+                "projected_spend": "Projected ($)",
+                "budget_cap":      "Cap ($)",
+                "overage_pct":     "Overage %",
+                "z_score":         "Z-score",
+            })
+            .reset_index(drop=True)
+        )
+        st.dataframe(top_table, use_container_width=True, hide_index=True)

@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 from typing import Optional
+import json
+import os
 import requests
 import pandas as pd
 import io
@@ -39,10 +41,21 @@ def _load_directory(hdfs_dir: str) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+_ANOMALY_FILE = os.path.join(os.path.dirname(__file__), "anomalies.json")
+
+
+def _load_anomalies():
+    if os.path.exists(_ANOMALY_FILE):
+        with open(_ANOMALY_FILE) as f:
+            return json.load(f)
+    return {"alerts": [], "generated_at": None}
+
+
 def _reload_cache():
     _cache["forecasts"] = _load_directory("/user/fintech/forecasts/")
     _cache["recommendations"] = _load_directory("/user/fintech/recommendations/")
     _cache["baseline"] = _load_directory("/user/fintech/baseline/")
+    _cache["anomalies"] = _load_anomalies()
 
 
 @asynccontextmanager
@@ -118,3 +131,34 @@ def get_categories():
     if df.empty:
         return []
     return sorted(df["category"].unique().tolist())
+
+
+@app.get("/anomalies")
+def get_anomalies(severity: Optional[str] = None):
+    data = _cache.get("anomalies", {"alerts": []})
+    alerts = data.get("alerts", [])
+    if severity:
+        alerts = [a for a in alerts if a["severity"] == severity]
+    return {
+        "generated_at":  data.get("generated_at"),
+        "current_month": data.get("current_month"),
+        "days_elapsed":  data.get("days_elapsed"),
+        "days_in_month": data.get("days_in_month"),
+        "total_alerts":  len(alerts),
+        "alerts":        alerts,
+    }
+
+
+@app.get("/users/{customer_id}/anomalies")
+def get_user_anomalies(customer_id: str):
+    data  = _cache.get("anomalies", {"alerts": []})
+    alerts = [a for a in data.get("alerts", []) if a["customer_id"] == customer_id]
+    return {
+        "customer_id":   customer_id,
+        "generated_at":  data.get("generated_at"),
+        "current_month": data.get("current_month"),
+        "days_elapsed":  data.get("days_elapsed"),
+        "days_in_month": data.get("days_in_month"),
+        "alert_count":   len(alerts),
+        "alerts":        alerts,
+    }
