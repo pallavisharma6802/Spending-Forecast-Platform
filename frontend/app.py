@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+st.set_page_config(page_title="Spending Forecast & Recommendation Platform", layout="wide")
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
@@ -36,13 +38,10 @@ df_forecasts["forecasted_spend"]    = df_forecasts["forecasted_spend"].astype(fl
 for col in ["cf_predicted_spend", "own_forecast_30d", "recommended_budget_cap"]:
     df_caps[col] = df_caps[col].astype(float)
 
-# ── page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Spending Forecast & Recommendation Platform", layout="wide")
-
 st.title("Spending Forecast & Recommendation Platform")
 st.caption(
-    "End-to-end pipeline: HDFS · Hive · Spark · Prophet · Collaborative Filtering · Airflow. "
-    "Forecasts and budget caps are pre-computed from 10K transactions across 200 users and 13 categories."
+    "End-to-end pipeline: HDFS · Hive · Spark · Prophet · Collaborative Filtering. "
+    "Forecasts and budget caps are pre-computed from 23K transactions across 200 users and 13 categories."
 )
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
