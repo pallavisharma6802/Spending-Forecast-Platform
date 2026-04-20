@@ -42,6 +42,7 @@ def _load_directory(hdfs_dir: str) -> pd.DataFrame:
 
 
 _ANOMALY_FILE = os.path.join(os.path.dirname(__file__), "anomalies.json")
+_PEER_FILE    = os.path.join(os.path.dirname(__file__), "peer_benchmarks.json")
 
 
 def _load_anomalies():
@@ -51,11 +52,21 @@ def _load_anomalies():
     return {"alerts": [], "generated_at": None}
 
 
+def _load_peer_benchmarks():
+    if os.path.exists(_PEER_FILE):
+        with open(_PEER_FILE) as f:
+            data = json.load(f)
+        # index by customer_id for O(1) lookup
+        return {u["customer_id"]: u["categories"] for u in data.get("users", [])}
+    return {}
+
+
 def _reload_cache():
     _cache["forecasts"] = _load_directory("/user/fintech/forecasts/")
     _cache["recommendations"] = _load_directory("/user/fintech/recommendations/")
     _cache["baseline"] = _load_directory("/user/fintech/baseline/")
     _cache["anomalies"] = _load_anomalies()
+    _cache["peer_benchmarks"] = _load_peer_benchmarks()
 
 
 @asynccontextmanager
@@ -161,4 +172,28 @@ def get_user_anomalies(customer_id: str):
         "days_in_month": data.get("days_in_month"),
         "alert_count":   len(alerts),
         "alerts":        alerts,
+    }
+
+
+@app.get("/users/{customer_id}/peer-benchmark")
+def get_peer_benchmark(customer_id: str, category: Optional[str] = None):
+    index = _cache.get("peer_benchmarks", {})
+    cats = index.get(customer_id)
+    if cats is None:
+        raise HTTPException(404, f"No peer benchmark for customer {customer_id}")
+    if category:
+        cats = [c for c in cats if c["category"] == category]
+        if not cats:
+            raise HTTPException(404, f"No peer benchmark for {customer_id} / {category}")
+    above = [c for c in cats if c["direction"] == "above"]
+    below = [c for c in cats if c["direction"] == "below"]
+    return {
+        "customer_id":   customer_id,
+        "categories":    cats,
+        "summary": {
+            "above_peer_count": len(above),
+            "below_peer_count": len(below),
+            "top_overspend":    sorted(above, key=lambda x: x["vs_peers_pct"] or 0, reverse=True)[:3],
+            "top_underspend":   sorted(below, key=lambda x: x["vs_peers_pct"] or 0)[:3],
+        },
     }

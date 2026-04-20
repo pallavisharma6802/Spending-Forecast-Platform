@@ -224,6 +224,9 @@ curl -X POST http://localhost:8000/reload
 | GET | `/users/{id}/forecasts` | Forecasts (7/15/30-day) |
 | GET | `/users/{id}/budget-caps` | CF budget recommendations |
 | GET | `/categories` | All spending categories |
+| GET | `/anomalies` | Platform-wide anomaly alerts (optional `?severity=high`) |
+| GET | `/users/{id}/anomalies` | Per-user anomaly alerts |
+| GET | `/users/{id}/peer-benchmark` | Per-user vs peer-average spend delta + percentiles |
 | POST | `/reload` | Refresh in-memory cache from HDFS |
 
 ---
@@ -242,7 +245,10 @@ curl -X POST http://localhost:8000/reload
 │   ├── 05_collaborative_filter.py        # user-based CF — budget caps
 │   ├── 06_mapreduce_mapper.py
 │   ├── 06_mapreduce_reducer.py
-│   └── 06_run_mapreduce.sh
+│   ├── 06_run_mapreduce.sh
+│   ├── 07_financial_health_score.py   # composite 0-100 score across 4 dimensions
+│   ├── 08_anomaly_detection.py        # Z-score + Isolation Forest mid-month pace check
+│   └── 09_peer_benchmarking.py        # CF neighbor delta + category percentile insights
 ├── api/
 │   ├── main.py                           # FastAPI serving layer
 │   ├── requirements.txt

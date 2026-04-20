@@ -10,7 +10,7 @@ import numpy as np
 SEED = 42
 rng  = np.random.default_rng(SEED)
 
-# ── Load real data ────────────────────────────────────────────────────────────
+#  Load real data 
 REAL_CSV = "data/spending_patterns_detailed.csv"
 OUT_CSV  = "data/spending_patterns_5yr.csv"
 
@@ -23,7 +23,7 @@ real = real.rename(columns={
     "Transaction Date": "transaction_date",
 })
 
-# ── Category metadata ─────────────────────────────────────────────────────────
+#  Category metadata ─
 ITEMS = {
     "Fitness":               ["Yoga Class", "Personal Trainer", "Workout Equipment", "Gym Supplement"],
     "Food":                  ["Fast Food", "Restaurant Meal", "Coffee", "Takeout"],
@@ -34,10 +34,29 @@ ITEMS = {
     "Housing and Utilities": ["Water Bill", "Gas Bill", "Electricity Bill", "Rent", "Internet Bill"],
     "Medical/Dental":        ["Dentist Visit", "Doctor Visit", "Medicine", "Eye Exam"],
     "Personal Hygiene":      ["Toothpaste", "Shampoo", "Skin Care Products", "Soap", "Razor"],
-    "Shopping":              ["Car", "Shoes", "Clothes", "Electronics", "Furniture"],
+    "Shopping":              ["Shoes", "Clothes", "Electronics", "Furniture", "Accessories"],
     "Subscriptions":         ["Streaming Service", "Magazine", "Gym Membership", "Software Sub"],
     "Transportation":        ["Car Repair", "Public Transit", "Gas", "Parking"],
     "Travel":                ["Plane Ticket", "Taxi/Uber", "Hotel Stay", "Vacation Package"],
+}
+
+# Maximum realistic transaction amount per category.
+# Prevents the synthetic generator from inheriting outlier-inflated means
+# (e.g., occasional $200K car purchases in Shopping skewing the distribution).
+AMOUNT_CAPS = {
+    "Fitness":               2500,
+    "Food":                   500,
+    "Friend Activities":     1000,
+    "Gifts":                 2500,
+    "Groceries":              150,
+    "Hobbies":                500,
+    "Housing and Utilities": 5000,
+    "Medical/Dental":        1000,
+    "Personal Hygiene":       400,
+    "Shopping":              3000,
+    "Subscriptions":           80,
+    "Transportation":         800,
+    "Travel":                2000,
 }
 
 PAYMENT_METHODS = ["Debit Card", "Digital Wallet", "Cash", "Credit Card"]
@@ -90,7 +109,7 @@ COVID_OVERRIDE = {
     (2021, 4):  {"Travel": 0.6, "Friend Activities": 0.8},
 }
 
-# ── Compute per user-category statistics from real data ───────────────────────
+#  Compute per user-category statistics from real data ─
 # We'll use the 2023-2024 data as the calibration baseline
 stats = (
     real.groupby(["customer_id", "category"])
@@ -108,7 +127,7 @@ stats["std_spend"]  = stats["std_spend"].fillna(stats["mean_spend"] * 0.3)
 users      = real["customer_id"].unique().tolist()
 categories = list(ITEMS.keys())
 
-# ── Generate synthetic rows year by year ──────────────────────────────────────
+#  Generate synthetic rows year by year 
 synthetic_rows = []
 
 for year in [2020, 2021, 2022]:
@@ -152,7 +171,7 @@ for year in [2020, 2021, 2022]:
                 log_mu    = np.log(scaled_mu / np.sqrt(1 + cv2))
                 log_sigma = np.sqrt(np.log(1 + cv2))
                 amount    = round(float(rng.lognormal(log_mu, log_sigma)), 2)
-                amount    = max(0.50, amount)
+                amount    = max(0.50, min(amount, AMOUNT_CAPS.get(cat, float("inf"))))
 
                 qty   = int(rng.choice([1, 1, 1, 2, 2, 3], p=[0.5, 0.2, 0.1, 0.1, 0.05, 0.05]))
                 price = round(amount / qty, 2)
@@ -172,7 +191,7 @@ for year in [2020, 2021, 2022]:
 synth_df = pd.DataFrame(synthetic_rows)
 print(f"Synthetic rows generated: {len(synth_df):,}")
 
-# ── Combine with real data ────────────────────────────────────────────────────
+#  Combine with real data 
 real_renamed = real.rename(columns={
     "customer_id": "customer_id", "category": "category",
     "item": "item", "quantity": "quantity",
@@ -180,6 +199,17 @@ real_renamed = real.rename(columns={
     "payment_method": "payment_method", "location": "location",
     "transaction_date": "transaction_date",
 })
+
+# Apply the same caps to the real data so outlier-inflated transactions
+# (e.g., $352K Shopping purchases) don't distort the combined dataset.
+real_renamed["total_spent"] = real_renamed.apply(
+    lambda r: min(r["total_spent"], AMOUNT_CAPS.get(r["category"], float("inf"))),
+    axis=1,
+)
+real_renamed["price_per_unit"] = real_renamed.apply(
+    lambda r: min(r["price_per_unit"], AMOUNT_CAPS.get(r["category"], float("inf"))),
+    axis=1,
+)
 
 combined = pd.concat([synth_df, real_renamed], ignore_index=True)
 combined  = combined.sort_values("transaction_date").reset_index(drop=True)

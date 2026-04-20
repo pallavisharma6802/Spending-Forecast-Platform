@@ -38,7 +38,7 @@ Z_THRESHOLD      = 2.5    # flag if projected Z-score exceeds this
 IF_CONTAMINATION = 0.05  # expected anomaly rate for Isolation Forest
 OVERAGE_THRESHOLD = 25   # minimum % overage to raise a pace alert
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+#  Load data ─
 txn = pd.read_csv(CSV_PATH, parse_dates=["Transaction Date"])
 txn = txn.rename(columns={
     "Customer ID": "customer_id", "Category": "category",
@@ -50,7 +50,7 @@ caps_df = pd.DataFrame(json.load(open(os.path.join(DATA_DIR, "budget_caps.json")
 caps_df["recommended_budget_cap"] = caps_df["recommended_budget_cap"].astype(float)
 caps_idx = caps_df.set_index(["customer_id", "category"])["recommended_budget_cap"]
 
-# ── Build monthly spend matrix ────────────────────────────────────────────────
+#  Build monthly spend matrix 
 monthly = (
     txn.groupby(["customer_id", "category", "month"])["total_spent"]
     .sum().reset_index()
@@ -74,7 +74,7 @@ hist_stats = (
 hist_stats["hist_std"]  = hist_stats["hist_std"].fillna(hist_stats["hist_mean"] * 0.3)
 hist_stats["hist_cv"]   = hist_stats["hist_std"] / hist_stats["hist_mean"].replace(0, 1)
 
-# ── Z-score anomaly ───────────────────────────────────────────────────────────
+#  Z-score anomaly 
 current = current.merge(hist_stats, on=["customer_id", "category"], how="left")
 current["projected_spend"] = (current["monthly_spend"] * PACE_FACTOR).round(2)
 
@@ -83,7 +83,7 @@ current["z_score"] = (
     / current["hist_std"].replace(0, 1)
 ).round(3)
 
-# ── Isolation Forest ─────────────────────────────────────────────────────────
+#  Isolation Forest ─
 # Train on historical feature vectors: mean, std, cv, n_months, trend
 # (monthly trend = slope of monthly spend over time per user-category)
 def _trend(series):
@@ -134,7 +134,7 @@ X_score_scaled = scaler.transform(X_score.values)
 current_with_stats["if_score"]   = iso.score_samples(X_score_scaled).round(4)
 current_with_stats["if_anomaly"] = iso.predict(X_score_scaled)   # -1 = anomaly
 
-# ── Budget cap comparison ─────────────────────────────────────────────────────
+#  Budget cap comparison ─
 def _get_cap(row):
     try:
         return float(caps_idx.loc[(row["customer_id"], row["category"])])
@@ -150,7 +150,7 @@ current_with_stats["overage_pct"] = (
     / current_with_stats["budget_cap"].replace(0, 1) * 100
 ).round(1)
 
-# ── Build alert list ──────────────────────────────────────────────────────────
+#  Build alert list 
 alerts = []
 
 for _, row in current_with_stats.iterrows():
@@ -214,7 +214,7 @@ for _, row in current_with_stats.iterrows():
 sev_order = {"high": 0, "medium": 1, "low": 2}
 alerts.sort(key=lambda a: (sev_order[a["severity"]], -(a["overage_pct"] or 0)))
 
-# ── Save ──────────────────────────────────────────────────────────────────────
+#  Save 
 output = {
     "generated_at":  str(pd.Timestamp.now().date()),
     "current_month": str(CURRENT_MONTH),
@@ -227,7 +227,7 @@ output = {
 with open(OUTPUT_JSON, "w") as f:
     json.dump(output, f, indent=2)
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+#  Summary ─
 df_alerts = pd.DataFrame(alerts)
 print(f"Anomaly detection complete — {CURRENT_MONTH} ({DAYS_ELAPSED}/{DAYS_IN_MONTH} days elapsed)")
 print(f"Users with current-month data: {current['customer_id'].nunique()}")
@@ -236,13 +236,13 @@ print(f"Total alerts:                  {len(alerts)}")
 print()
 
 if not df_alerts.empty:
-    print("── By severity ─────────────────────────────────────────────────")
+    print(" By severity ─")
     for sev in ["high", "medium", "low"]:
         n = len(df_alerts[df_alerts["severity"] == sev])
         print(f"  {sev:<8}  {n} alerts")
 
     print()
-    print("── High-severity alerts ─────────────────────────────────────────")
+    print(" High-severity alerts ─")
     high = df_alerts[df_alerts["severity"] == "high"].head(10)
     for _, r in high.iterrows():
         print(f"  {r['customer_id']}  {r['category']:<25}  "
@@ -251,7 +251,7 @@ if not df_alerts.empty:
               f"overage={r['overage_pct']:>+.0f}%  Z={r['z_score']:>+.1f}")
 
     print()
-    print("── Top categories by alert count ────────────────────────────────")
+    print(" Top categories by alert count ")
     print(df_alerts["category"].value_counts().head(6).to_string())
 
 print(f"\nSaved → {OUTPUT_JSON}")
