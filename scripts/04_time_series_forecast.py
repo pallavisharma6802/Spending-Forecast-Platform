@@ -21,7 +21,7 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("ERROR")
 
 df = spark.read.csv(
-    "hdfs://namenode:8020/user/fintech/transactions/spending_patterns_detailed.csv",
+    "hdfs://namenode:8020/user/fintech/transactions/spending_patterns_5yr.csv",
     header=True,
     inferSchema=True
 )
