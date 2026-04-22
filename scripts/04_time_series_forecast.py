@@ -49,6 +49,9 @@ BASELINE_CATS = {
     "Subscriptions", "Transportation", "Travel",
 }
 SARIMAX_CATS = set(BASELINE_CATS)
+# Evaluation-only set so we can compare all three models without changing
+# the currently served baseline forecast output.
+PROPHET_COMPARE_CATS = set(BASELINE_CATS)
 
 #  Load 
 txn = pd.read_csv(CSV_PATH, parse_dates=["Transaction Date"])
@@ -181,30 +184,57 @@ def sarimax_forecast_category_13d(category):
     cap_99 = cat_series.quantile(0.99)
     y = cat_series.clip(upper=cap_99)
 
-    try:
+    def _fit_and_forecast(series, steps, order, seasonal_order):
         model = SARIMAX(
-            y,
-            order=(1, 1, 1),
-            seasonal_order=(1, 0, 1, 7),
+            series,
+            order=order,
+            seasonal_order=seasonal_order,
             trend="c",
             enforce_stationarity=False,
             enforce_invertibility=False,
         )
         fitted = model.fit(disp=False)
-        pred = fitted.forecast(steps=ACTUAL_DAYS)
-    except Exception:
-        model = SARIMAX(
-            y,
-            order=(1, 0, 0),
-            seasonal_order=(0, 0, 0, 0),
-            trend="c",
-            enforce_stationarity=False,
-            enforce_invertibility=False,
-        )
-        fitted = model.fit(disp=False)
-        pred = fitted.forecast(steps=ACTUAL_DAYS)
+        return np.clip(np.asarray(fitted.forecast(steps=steps)), 0, None)
 
-    return float(np.clip(np.asarray(pred), 0, None).sum())
+    # Use a short holdout in late 2024 to choose a better SARIMAX config per category.
+    holdout_steps = ACTUAL_DAYS
+    train_series = y.iloc[:-holdout_steps]
+    holdout_actual = float(y.iloc[-holdout_steps:].sum())
+
+    candidates = [
+        {"name": "s111x101_7", "order": (1, 1, 1), "seasonal": (1, 0, 1, 7)},
+        {"name": "s101x100_7", "order": (1, 0, 1), "seasonal": (1, 0, 0, 7)},
+        {"name": "s201x101_7", "order": (2, 0, 1), "seasonal": (1, 0, 1, 7)},
+    ]
+
+    recent_daily = float(train_series.tail(30).mean())
+    naive_pred_sum = max(0.0, recent_daily * holdout_steps)
+
+    best = {"name": "naive_recent", "ape": abs(naive_pred_sum - holdout_actual) / max(holdout_actual, 1), "cfg": None}
+    for cfg in candidates:
+        try:
+            pred = _fit_and_forecast(train_series, holdout_steps, cfg["order"], cfg["seasonal"])
+            pred_sum = float(pred.sum())
+            ape = abs(pred_sum - holdout_actual) / max(holdout_actual, 1)
+            if ape < best["ape"]:
+                best = {"name": cfg["name"], "ape": ape, "cfg": cfg}
+        except Exception:
+            continue
+
+    if best["cfg"] is None:
+        forecast_sum = float(max(0.0, y.tail(30).mean() * ACTUAL_DAYS))
+    else:
+        try:
+            pred = _fit_and_forecast(y, ACTUAL_DAYS, best["cfg"]["order"], best["cfg"]["seasonal"])
+            forecast_sum = float(pred.sum())
+        except Exception:
+            forecast_sum = float(max(0.0, y.tail(30).mean() * ACTUAL_DAYS))
+
+    # Guardrail against unstable spikes: bound by recent 13-day spend envelope.
+    recent_13d = float(y.tail(ACTUAL_DAYS).sum())
+    lower = 0.4 * recent_13d
+    upper = 2.2 * recent_13d
+    return float(np.clip(forecast_sum, lower, upper))
 
 
 #  Prophet: fit on ≤2024, forecast Jan 1–15 2025 
@@ -321,8 +351,8 @@ for cat, group in cat_daily.groupby("category"):
     actual_row = actual_cat[actual_cat["category"] == cat]
     actual_13d = float(actual_row["actual_13d"].values[0]) if not actual_row.empty else 0.0
 
-    #  Prophet categories 
-    if cat in PROPHET_CATS:
+    #  Prophet comparison categories 
+    if cat in PROPHET_COMPARE_CATS:
         pdf = (
             group[["transaction_date", "daily_spend"]]
             .rename(columns={"transaction_date": "ds", "daily_spend": "y"})

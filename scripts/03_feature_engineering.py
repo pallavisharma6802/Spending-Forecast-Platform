@@ -45,7 +45,7 @@ baseline.write.mode("overwrite").csv(
     header=True
 )
 
-# ── Spend velocity: Q4 YoY (Oct–Dec 2023 vs Oct–Dec 2024) ───────────────────
+#  Spend velocity: Q4 YoY (Oct–Dec 2023 vs Oct–Dec 2024) ─
 # Signals whether a user is spending more or less in recent Q4 vs prior year
 df_dated = df.withColumn("transaction_date", F.to_date("transaction_date"))
 

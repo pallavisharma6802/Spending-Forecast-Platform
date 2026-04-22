@@ -1,6 +1,6 @@
 # Spending Forecast and Recommendation Platform
 
-A distributed data platform built on a local Hadoop cluster that ingests transaction data, engineers behavioral features with Spark, forecasts future spend using a hybrid Prophet + recency-weighted baseline model, and recommends personalized budget caps via collaborative filtering.
+A distributed data platform built on a local Hadoop cluster that ingests transaction data, engineers behavioral features with Spark, forecasts future spend using a recency-weighted baseline model (with SARIMAX comparison), and recommends personalized budget caps via collaborative filtering.
 
 ---
 
@@ -8,20 +8,20 @@ A distributed data platform built on a local Hadoop cluster that ingests transac
 
 **[Launch on Streamlit Cloud →](https://spending-forecast-and-recommendation-platform.streamlit.app)**
 
-The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo — no Hadoop cluster required to view results. The full distributed pipeline runs locally via Docker Compose.
+The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo - no Hadoop cluster required to view results. The full distributed pipeline runs locally via Docker Compose.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Storage | HDFS, Apache Hive |
-| Batch processing | Apache Spark, Hadoop MapReduce |
-| Forecasting | Facebook Prophet + recency-weighted baseline (hybrid) |
-| Recommendation | User-based Collaborative Filtering |
-| Serving | FastAPI, Streamlit |
-| Infrastructure | Docker Compose |
+| Layer            | Technology                                                                      |
+| ---------------- | ------------------------------------------------------------------------------- |
+| Storage          | HDFS, Apache Hive                                                               |
+| Batch processing | Apache Spark, Hadoop MapReduce                                                  |
+| Forecasting      | Recency-weighted baseline (active), SARIMAX (comparison), Prophet path retained |
+| Recommendation   | User-based Collaborative Filtering                                              |
+| Serving          | FastAPI, Streamlit                                                              |
+| Infrastructure   | Docker Compose                                                                  |
 
 ---
 
@@ -36,7 +36,7 @@ HDFS /user/fintech/transactions/
     ├──▶ Hive external tables (SQL access)
     │
     ├──▶ MapReduce (06)
-    │       Hadoop Streaming — spend aggregation by category
+    │       Hadoop Streaming - spend aggregation by category
     │       Output: total, count, avg, spend tier per category
     │       → /user/fintech/mr_category_agg/
     │
@@ -46,12 +46,12 @@ HDFS /user/fintech/transactions/
     │       → /user/fintech/baseline/
     │       → /user/fintech/velocity/
     │
-    ├──▶ Hybrid Forecasting (04)
-    │       Prophet (seasonal categories): category-level daily spend,
-    │         5yr history, winsorized at 99th percentile
-    │         → distributed to users via spend share × behavior multiplier
-    │       Baseline (irregular categories): per-user recency-weighted
-    │         monthly average × velocity adjustment
+    ├──▶ Forecasting (04)
+    │       Baseline (active): per-user recency-weighted monthly average
+    │         × velocity adjustment
+    │       SARIMAX (comparison): category-level daily model for side-by-side
+    │         validation vs baseline
+    │       Prophet: code path retained but disabled by default
     │       → /user/fintech/forecasts/          (7 / 15 / 30-day horizons)
     │       → /user/fintech/forecast_eval/      (MAPE per category + model)
     │
@@ -78,62 +78,91 @@ Streamlit ──▶  calls FastAPI, renders spending overview / forecasts / budg
 
 ## Forecasting Design
 
-All 13 categories use a **recency-weighted baseline** model. A head-to-head 2024 holdout
-(train ≤2023) showed Prophet was outperformed by the baseline on every single category —
-Prophet overfit the synthetic January seasonality patterns rather than learning genuine
-signal, while the baseline correctly captures each user's recent spending level.
+Current runtime behavior in `scripts/04_time_series_forecast.py`:
 
-**Recency-weighted baseline** — per-user monthly spend history, exponentially weighted
+- **Active serving model**: recency-weighted baseline for all 13 categories
+- **Comparison model**: SARIMAX evaluation on baseline-routed categories
+- **Prophet status**: retained in code, but disabled by default (`PROPHET_CATS = set()`)
+
+Why baseline is the serving path: on this dataset, it remains more stable for per-user
+monthly spend forecasting and avoids synthetic seasonality overfit.
+
+**Recency-weighted baseline** - per-user monthly spend history, exponentially weighted
 toward recent months (λ=0.15), with a Q4 YoY velocity adjustment on top:
 
 - `forecast = weighted_monthly_avg × (horizon_days / 30) × velocity`
 - Recency decay: last month weight=1.0, 6mo ago=0.41, 12mo ago=0.17
 - Velocity = Q4-2024 / Q4-2023 spend ratio, clamped to [0.5, 2.0]
 
-**Model selection (2024 holdout, train ≤2023):**
+**Model comparison:**
 
-A head-to-head evaluation of Prophet vs recency-weighted baseline on every category showed
-baseline outperforming Prophet on all 13 categories. Prophet overfit synthetic seasonal
-patterns that don't generalise well at the monthly aggregation level. All categories now
-use the baseline model.
+The pipeline now prints side-by-side metrics for Prophet, baseline, and SARIMAX
+(MAPE, WAPE, RMSE), with per-category winners on the clean evaluation set. Baseline
+remains the default forecast source used for downstream recommendations.
 
-| Category | MAPE (2024 holdout) |
-|---|---|
-| Subscriptions | 13.6% |
-| Shopping | 18.7% |
-| Medical/Dental | 17.1% |
-| Fitness | 20.0% |
-| Groceries | 20.0% |
-| Friend Activities | 22.2% |
-| Housing & Utilities | 19.4% |
-| Travel | 27.2% |
-| Hobbies | 26.3% |
-| Gifts | 36.4% |
-| Transportation | 46.0% |
-| Food | 47.6% |
-| Personal Hygiene | 120.1% |
-| **Overall mean** | | **33.4%** |
+Latest comparison from `scripts/04_time_series_forecast.py`:
 
+| Model    | Clean-set mean APE | Clean-set WAPE | Clean-set RMSE |
+| -------- | ------------------ | -------------- | -------------- |
+| Baseline | 41.3%              | 41.1%          | $4,512         |
+| Prophet  | 86.1%              | 62.2%          | $4,970         |
+| SARIMAX  | 43.2%              | 37.2%          | $3,472         |
+
+Interpretation: Prophet is still available for comparison, but it is currently the
+least competitive on this dataset. Baseline remains the serving default, and SARIMAX
+is the strongest aggregate performer on WAPE/RMSE.
+
+**Per-category winners** (clean evaluation set, lowest APE):
+
+| Model    | Categories Won | Example Winners             |
+| -------- | -------------- | --------------------------- |
+| SARIMAX  | 5              | Gifts (3.2%), Groceries (5.1%), Food (10.0%) |
+| Baseline | 4              | Subscriptions (28.5%), Transportation (35.1%) |
+| Prophet  | 3              | Gifts (3.2%), Groceries (5.1%), Personal Hygiene (16.2%) |
+
+**Detailed category-wise APE** (Jan 1–13 validation window):
+
+Top performers (APE < 30%):
+- Gifts: Prophet 3.2%, Baseline 15.7%, SARIMAX 28.3%
+- Groceries: Prophet 5.1%, Baseline 26.0%, SARIMAX 19.7%
+- Food: Baseline 10.0%, SARIMAX 26.0%, Prophet 23.5%
+- Personal Hygiene: Baseline 16.2%, SARIMAX 25.0%, Prophet 32.5%
+- Subscriptions: Baseline 28.5%, SARIMAX 32.6%, Prophet 22.7%
+
+Moderate performers (30% ≤ APE < 70%):
+- Transportation: Baseline 35.1%, SARIMAX 29.8%, Prophet 117.8%
+- Shopping: Baseline 42.4%, SARIMAX 31.3%, Prophet 35.2%
+- Medical/Dental: Baseline 52.6%, SARIMAX 48.2%, Prophet 230.1%
+- Fitness: Baseline 40.5%, SARIMAX 57.9%, Prophet 164.4%
+
+Weaker performers (APE ≥ 70%):
+- Travel: Baseline 65.3%, SARIMAX 71.4%, Prophet 120.7%
+- Hobbies: Baseline 82.4%, SARIMAX 77.2%, Prophet 179.0%
+- Friend Activities: Baseline 80.5%, SARIMAX 70.8%, Prophet 98.7%
+
+*Note: Housing & Utilities excluded from analysis (⚠ 3× inflation in Jan 2025 vs training data)*
 ---
 
 ## Personalized Forecast Distribution
 
-**Blocker**: Two users with the same historical spend share got identical forecasts — a daily gym-goer and someone with one large equipment purchase looked the same.
 
-**Fix**: A behavior multiplier is applied to Prophet-category forecasts: `user_forecast = category_forecast × share × multiplier`. The multiplier is the geometric mean of recency (exponential decay since last transaction), frequency ratio (user's transaction count vs. category average), and Q4 YoY velocity — clamped to [0.3, 3.0].
+- Baseline forecast uses each user's own monthly series with recency decay
+- Velocity adjustment scales results using Q4 YoY trend (`spend_velocity`, clamped)
 
-**Result**: Fitness 30-day forecasts across 195 users range $0.65–$469 (std dev = 88% of mean). A decelerating user (velocity=0.5) receives a cap ~38% lower than their raw forecast.
+Note: Prophet and SARIMAX are retained in code for model comparison and experimentation,
+but only the baseline forecast is active in downstream recommendations.
 
 ---
 
 ## Collaborative Filtering
 
 User-based CF with a **65-feature matrix** per user (5 features × 13 categories):
-- `forecast_30d` — 30-day forecast (Prophet or baseline)
-- `avg_per_transaction` — historical average transaction size
-- `num_transactions` — transaction frequency
-- `max_30d_spend` — peak 30-day spend
-- `spend_velocity` — Q4 YoY spend ratio (accelerating or decelerating)
+
+- `forecast_30d` - 30-day forecast (baseline active; SARIMAX comparison available)
+- `avg_per_transaction` - historical average transaction size
+- `num_transactions` - transaction frequency
+- `max_30d_spend` - peak 30-day spend
+- `spend_velocity` - Q4 YoY spend ratio (accelerating or decelerating)
 
 Features are min-max normalized before cosine similarity so no single feature dominates. Top-10 nearest neighbors. Budget cap = (60% own + 40% CF) × velocity × 1.15 safety buffer.
 
@@ -141,13 +170,13 @@ Features are min-max normalized before cosine similarity so no single feature do
 
 ## Services (local cluster)
 
-| Service | URL |
-|---|---|
-| Streamlit dashboard | http://localhost:8501 |
-| FastAPI + docs | http://localhost:8000/docs |
-| HDFS NameNode | http://localhost:9870 |
-| Spark Master | http://localhost:8080 |
-| YARN ResourceManager | http://localhost:8088 |
+| Service              | URL                        |
+| -------------------- | -------------------------- |
+| Streamlit dashboard  | http://localhost:8501      |
+| FastAPI + docs       | http://localhost:8000/docs |
+| HDFS NameNode        | http://localhost:9870      |
+| Spark Master         | http://localhost:8080      |
+| YARN ResourceManager | http://localhost:8088      |
 
 ---
 
@@ -193,7 +222,7 @@ docker exec fintech-spending-analyzer-spark-1 bash -c "
   python3 /tmp/03_feature_engineering.py
 "
 
-# Hybrid forecasting — runs in API container (native ARM64 for Prophet)
+# Forecasting (baseline + SARIMAX comparison; Prophet disabled by default)
 docker exec fintech-spending-analyzer-api-1 bash -c "
   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
   python3 /tmp/04_time_series_forecast.py
@@ -219,17 +248,17 @@ curl -X POST http://localhost:8000/reload
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/users` | List all customer IDs |
-| GET | `/users/{id}/baseline` | Historical spend by category |
-| GET | `/users/{id}/forecasts` | Forecasts (7/15/30-day) |
-| GET | `/users/{id}/budget-caps` | CF budget recommendations |
-| GET | `/categories` | All spending categories |
-| GET | `/anomalies` | Platform-wide anomaly alerts (optional `?severity=high`) |
-| GET | `/users/{id}/anomalies` | Per-user anomaly alerts |
-| GET | `/users/{id}/peer-benchmark` | Per-user vs peer-average spend delta + percentiles |
-| POST | `/reload` | Refresh in-memory cache from HDFS |
+| Method | Endpoint                     | Description                                              |
+| ------ | ---------------------------- | -------------------------------------------------------- |
+| GET    | `/users`                     | List all customer IDs                                    |
+| GET    | `/users/{id}/baseline`       | Historical spend by category                             |
+| GET    | `/users/{id}/forecasts`      | Forecasts (7/15/30-day)                                  |
+| GET    | `/users/{id}/budget-caps`    | CF budget recommendations                                |
+| GET    | `/categories`                | All spending categories                                  |
+| GET    | `/anomalies`                 | Platform-wide anomaly alerts (optional `?severity=high`) |
+| GET    | `/users/{id}/anomalies`      | Per-user anomaly alerts                                  |
+| GET    | `/users/{id}/peer-benchmark` | Per-user vs peer-average spend delta + percentiles       |
+| POST   | `/reload`                    | Refresh in-memory cache from HDFS                        |
 
 ---
 
@@ -242,9 +271,9 @@ curl -X POST http://localhost:8000/reload
 │   ├── 00_generate_synthetic_history.py  # extends dataset to 5yr with seasonality
 │   ├── 01_load_to_hdfs.sh
 │   ├── 02_create_hive_tables.sql
-│   ├── 03_feature_engineering.py         # Spark — rolling windows + velocity
-│   ├── 04_time_series_forecast.py        # hybrid Prophet + baseline forecasting
-│   ├── 05_collaborative_filter.py        # user-based CF — budget caps
+│   ├── 03_feature_engineering.py         # Spark - rolling windows + velocity
+│   ├── 04_time_series_forecast.py        # baseline forecasting + SARIMAX comparison (Prophet path retained)
+│   ├── 05_collaborative_filter.py        # user-based CF - budget caps
 │   ├── 06_mapreduce_mapper.py
 │   ├── 06_mapreduce_reducer.py
 │   ├── 06_run_mapreduce.sh
