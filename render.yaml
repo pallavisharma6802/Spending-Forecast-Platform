@@ -1,0 +1,29 @@
+# Render Blueprint for the deployed Dash app. Create the service via
+# Render's "New Blueprint" flow pointed at this repo, then fill in the
+# sync:false env vars in the dashboard (never commit real secrets here).
+#
+# PySpark runs in local mode inside this one container - no separate
+# Hadoop/Spark cluster, no HDFS. Kafka points at a managed broker (Upstash
+# Kafka or Confluent Cloud - create a free cluster yourself, see README) so
+# the streaming path is real even though nothing else here is self-hosted.
+services:
+  - name: fintech-spending-analyzer
+    type: web
+    runtime: docker
+    plan: starter # PySpark's JVM needs more headroom than the free tier's 512MB reliably offers
+    region: oregon
+    dockerfilePath: ./dash_app/Dockerfile
+    dockerContext: ./
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: PLAIN
+      - key: KAFKA_SASL_USERNAME
+        sync: false
+      - key: KAFKA_SASL_PASSWORD
+        sync: false

@@ -1,5 +1,8 @@
 /data/
 *.csv
 !/frontend/data/*.json
+!/frontend/data/*.csv
 __pycache__/
 .DS_Store
+window_state.db
+.env

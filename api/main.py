@@ -1,199 +1,134 @@
-from fastapi import FastAPI, HTTPException
-from contextlib import asynccontextmanager
-from typing import Optional
-import json
+"""FastAPI serving layer for the local docker-compose pipeline - local
+parity with the deployed Dash app's Upload Your Data and Ask Your Data
+tabs. Reads the same frontend/data/*.json demo dataset and runs the same
+core/ pipeline for uploads; no HDFS, no webhdfs, no Hadoop.
+"""
+
 import os
-import requests
-import pandas as pd
-import io
+import sys
+import uuid
+from typing import Optional
 
-NAMENODE_HTTP = "http://namenode:9870"
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-_cache: dict = {}
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
+from agent import claude_agent
+from core.streaming.event_bus import get_event_bus
+from core.streaming.window_consumer import get_connection, get_rolling_windows, start_background_consumer
+from dash_app import live
+from dash_app.data_store import get_demo
 
-def _list_hdfs_csvs(hdfs_dir: str) -> list:
-    url = f"{NAMENODE_HTTP}/webhdfs/v1{hdfs_dir}?op=LISTSTATUS"
-    r = requests.get(url, timeout=10)
-    r.raise_for_status()
-    statuses = r.json().get("FileStatuses", {}).get("FileStatus", [])
-    return [s["pathSuffix"] for s in statuses if s["pathSuffix"].endswith(".csv")]
+app = FastAPI(title="Fintech Spending Analyzer API")
 
-
-def _read_hdfs_csv(hdfs_path: str) -> pd.DataFrame:
-    url = f"{NAMENODE_HTTP}/webhdfs/v1{hdfs_path}?op=OPEN"
-    r = requests.get(url, allow_redirects=True, timeout=30)
-    r.raise_for_status()
-    return pd.read_csv(io.StringIO(r.text))
-
-
-def _load_directory(hdfs_dir: str) -> pd.DataFrame:
-    try:
-        files = _list_hdfs_csvs(hdfs_dir)
-    except Exception:
-        return pd.DataFrame()
-    frames = []
-    for f in files:
-        try:
-            frames.append(_read_hdfs_csv(f"{hdfs_dir}{f}"))
-        except Exception:
-            continue
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+_event_bus = get_event_bus()
+start_background_consumer(_event_bus)
+_window_conn = get_connection()
+_upload_cache: dict[str, dict] = {}
 
 
-_ANOMALY_FILE = os.path.join(os.path.dirname(__file__), "anomalies.json")
-_PEER_FILE    = os.path.join(os.path.dirname(__file__), "peer_benchmarks.json")
-
-
-def _load_anomalies():
-    if os.path.exists(_ANOMALY_FILE):
-        with open(_ANOMALY_FILE) as f:
-            return json.load(f)
-    return {"alerts": [], "generated_at": None}
-
-
-def _load_peer_benchmarks():
-    if os.path.exists(_PEER_FILE):
-        with open(_PEER_FILE) as f:
-            data = json.load(f)
-        # index by customer_id for O(1) lookup
-        return {u["customer_id"]: u["categories"] for u in data.get("users", [])}
-    return {}
-
-
-def _reload_cache():
-    _cache["forecasts"] = _load_directory("/user/fintech/forecasts/")
-    _cache["recommendations"] = _load_directory("/user/fintech/recommendations/")
-    _cache["baseline"] = _load_directory("/user/fintech/baseline/")
-    _cache["anomalies"] = _load_anomalies()
-    _cache["peer_benchmarks"] = _load_peer_benchmarks()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    _reload_cache()
-    yield
-    _cache.clear()
-
-
-app = FastAPI(title="Fintech Spending Analyzer API", lifespan=lifespan)
+def _view_json(view: dict) -> dict:
+    return {
+        "customer_id": view["customer_id"],
+        "baseline": view["baseline"].to_dict(orient="records"),
+        "forecasts": view["forecasts"].to_dict(orient="records"),
+        "budget_caps": view["caps"].to_dict(orient="records"),
+        "health": view["health_row"].to_dict(orient="records"),
+        "anomalies": view["alerts_user"].to_dict(orient="records") if not view["alerts_user"].empty else [],
+        "peer_benchmark": view["peer_categories"],
+    }
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "rows_cached": {k: len(v) for k, v in _cache.items()},
-    }
-
-
-@app.post("/reload")
-def reload():
-    _reload_cache()
-    return {"status": "reloaded", "rows_cached": {k: len(v) for k, v in _cache.items()}}
+    demo = get_demo()
+    return {"status": "ok", "demo_users": len(demo.users), "demo_categories": len(demo.categories)}
 
 
 @app.get("/users")
 def list_users():
-    df = _cache.get("baseline", pd.DataFrame())
-    if df.empty:
-        return []
-    return sorted(df["customer_id"].unique().tolist())
-
-
-@app.get("/users/{customer_id}/baseline")
-def get_baseline(customer_id: str):
-    df = _cache.get("baseline", pd.DataFrame())
-    if df.empty:
-        raise HTTPException(404, "No baseline data loaded")
-    rows = df[df["customer_id"] == customer_id]
-    if rows.empty:
-        raise HTTPException(404, f"No baseline for customer {customer_id}")
-    return rows.to_dict(orient="records")
-
-
-@app.get("/users/{customer_id}/forecasts")
-def get_forecasts(customer_id: str, horizon: Optional[int] = None):
-    df = _cache.get("forecasts", pd.DataFrame())
-    if df.empty:
-        raise HTTPException(404, "No forecast data loaded")
-    rows = df[df["customer_id"] == customer_id]
-    if rows.empty:
-        raise HTTPException(404, f"No forecasts for customer {customer_id}")
-    if horizon is not None:
-        rows = rows[rows["horizon_days"] == horizon]
-    return rows.to_dict(orient="records")
-
-
-@app.get("/users/{customer_id}/budget-caps")
-def get_budget_caps(customer_id: str):
-    df = _cache.get("recommendations", pd.DataFrame())
-    if df.empty:
-        raise HTTPException(404, "No recommendation data loaded")
-    rows = df[df["customer_id"] == customer_id]
-    if rows.empty:
-        raise HTTPException(404, f"No recommendations for customer {customer_id}")
-    return rows.to_dict(orient="records")
+    return get_demo().users
 
 
 @app.get("/categories")
-def get_categories():
-    df = _cache.get("baseline", pd.DataFrame())
-    if df.empty:
-        return []
-    return sorted(df["category"].unique().tolist())
+def list_categories():
+    return get_demo().categories
+
+
+@app.get("/users/{customer_id}/view")
+def get_user_view(customer_id: str):
+    demo = get_demo()
+    if customer_id not in demo.users:
+        raise HTTPException(404, f"Unknown customer {customer_id}")
+    return _view_json(demo.user_view(customer_id))
 
 
 @app.get("/anomalies")
 def get_anomalies(severity: Optional[str] = None):
-    data = _cache.get("anomalies", {"alerts": []})
-    alerts = data.get("alerts", [])
+    demo = get_demo()
+    alerts = demo.alerts.to_dict(orient="records") if not demo.alerts.empty else []
     if severity:
-        alerts = [a for a in alerts if a["severity"] == severity]
+        alerts = [a for a in alerts if a.get("severity") == severity]
+    return {"generated_at": demo.anomaly_meta.get("generated_at"), "total_alerts": len(alerts), "alerts": alerts}
+
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...), window_days: Optional[int] = None):
+    content = await file.read()
+    try:
+        result = live.run_pipeline(content, window_days=window_days, event_bus=_event_bus)
+    except live.UploadError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    key = str(uuid.uuid4())
+    _upload_cache[key] = result
     return {
-        "generated_at":  data.get("generated_at"),
-        "current_month": data.get("current_month"),
-        "days_elapsed":  data.get("days_elapsed"),
-        "days_in_month": data.get("days_in_month"),
-        "total_alerts":  len(alerts),
-        "alerts":        alerts,
+        "cache_key": key,
+        "customers": result["customers"],
+        "categories": result["categories"],
+        "rows_loaded": result["load_report"].n_rows_out,
     }
 
 
-@app.get("/users/{customer_id}/anomalies")
-def get_user_anomalies(customer_id: str):
-    data  = _cache.get("anomalies", {"alerts": []})
-    alerts = [a for a in data.get("alerts", []) if a["customer_id"] == customer_id]
-    return {
-        "customer_id":   customer_id,
-        "generated_at":  data.get("generated_at"),
-        "current_month": data.get("current_month"),
-        "days_elapsed":  data.get("days_elapsed"),
-        "days_in_month": data.get("days_in_month"),
-        "alert_count":   len(alerts),
-        "alerts":        alerts,
-    }
+@app.get("/uploads/{cache_key}/users/{customer_id}/view")
+def get_upload_view(cache_key: str, customer_id: str):
+    if cache_key not in _upload_cache:
+        raise HTTPException(404, "Unknown or expired cache_key - re-upload the file")
+    result = _upload_cache[cache_key]
+    if customer_id not in result["customers"]:
+        raise HTTPException(404, f"Unknown customer {customer_id} in this upload")
+    return _view_json(live.user_view(result, customer_id))
 
 
-@app.get("/users/{customer_id}/peer-benchmark")
-def get_peer_benchmark(customer_id: str, category: Optional[str] = None):
-    index = _cache.get("peer_benchmarks", {})
-    cats = index.get(customer_id)
-    if cats is None:
-        raise HTTPException(404, f"No peer benchmark for customer {customer_id}")
-    if category:
-        cats = [c for c in cats if c["category"] == category]
-        if not cats:
-            raise HTTPException(404, f"No peer benchmark for {customer_id} / {category}")
-    above = [c for c in cats if c["direction"] == "above"]
-    below = [c for c in cats if c["direction"] == "below"]
-    return {
-        "customer_id":   customer_id,
-        "categories":    cats,
-        "summary": {
-            "above_peer_count": len(above),
-            "below_peer_count": len(below),
-            "top_overspend":    sorted(above, key=lambda x: x["vs_peers_pct"] or 0, reverse=True)[:3],
-            "top_underspend":   sorted(below, key=lambda x: x["vs_peers_pct"] or 0)[:3],
-        },
-    }
+@app.get("/uploads/{cache_key}/users/{customer_id}/rolling-windows")
+def get_upload_rolling_windows(cache_key: str, customer_id: str, category: str):
+    if cache_key not in _upload_cache:
+        raise HTTPException(404, "Unknown or expired cache_key - re-upload the file")
+    return get_rolling_windows(_window_conn, customer_id, category)
+
+
+class ChatRequest(BaseModel):
+    customer_id: str
+    message: str
+    history: Optional[list] = None
+    cache_key: Optional[str] = None
+
+
+@app.post("/agent/chat")
+def agent_chat(req: ChatRequest):
+    if not claude_agent.is_configured():
+        raise HTTPException(503, "ANTHROPIC_API_KEY is not configured on this server")
+
+    if req.cache_key:
+        if req.cache_key not in _upload_cache:
+            raise HTTPException(404, "Unknown or expired cache_key - re-upload the file")
+        view = live.user_view(_upload_cache[req.cache_key], req.customer_id)
+    else:
+        demo = get_demo()
+        if req.customer_id not in demo.users:
+            raise HTTPException(404, f"Unknown customer {req.customer_id}")
+        view = demo.user_view(req.customer_id)
+
+    answer, history = claude_agent.chat(req.message, view, history=req.history)
+    return {"answer": answer, "history": history}

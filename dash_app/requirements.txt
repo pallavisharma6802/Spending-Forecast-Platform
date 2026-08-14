@@ -1,7 +1,6 @@
-fastapi==0.141.1
-uvicorn[standard]==0.52.1
-python-multipart==0.0.32
-pydantic==2.13.4
+dash==4.4.1
+gunicorn==26.0.0
+plotly==6.9.0
 pandas==2.3.3
 numpy==2.4.4
 pyspark==4.2.0

@@ -1,294 +1,272 @@
 # Spending Forecast and Recommendation Platform
 
-A distributed data platform built on a local Hadoop cluster that ingests transaction data, engineers behavioral features with Spark, forecasts future spend using a recency-weighted baseline model (with SARIMAX comparison), and recommends personalized budget caps via collaborative filtering.
+A personal-finance analytics platform: forecasts future spend per category with backtested
+model selection, recommends budget caps via collaborative filtering, flags anomalous spend
+pace, scores financial health, and benchmarks you against similar users. Runs against a
+200-user reference dataset out of the box, or upload your own transactions (any day/month/year
+range) and get the same analytics live. Includes a Claude tool-calling chat agent and a real
+Kafka streaming path.
 
 ---
 
-## Live Demo
+## Deploying your own instance
 
-**[Launch on Streamlit Cloud →](https://spending-forecast-and-recommendation-platform.streamlit.app)**
+There's no shared public URL for this app - forecasts and budget caps are computed live per
+deployment, and the chat agent needs your own Anthropic API key. To run your own:
 
-The demo loads pre-computed outputs (forecasts + budget caps for all 200 users) directly from static JSON files in the repo - no Hadoop cluster required to view results. The full distributed pipeline runs locally via Docker Compose.
-
----
-
-## Tech Stack
-
-| Layer            | Technology                                                                      |
-| ---------------- | ------------------------------------------------------------------------------- |
-| Storage          | HDFS, Apache Hive                                                               |
-| Batch processing | Apache Spark, Hadoop MapReduce                                                  |
-| Forecasting      | Recency-weighted baseline (active), SARIMAX (comparison), Prophet path retained |
-| Recommendation   | User-based Collaborative Filtering                                              |
-| Serving          | FastAPI, Streamlit                                                              |
-| Infrastructure   | Docker Compose                                                                  |
+1. Create a free [Upstash Kafka](https://upstash.com/) or [Confluent Cloud](https://www.confluent.io/confluent-cloud/) cluster (for the streaming path) and get an
+   [Anthropic API key](https://console.anthropic.com/) (for the chat agent) - both optional, the
+   app degrades gracefully without them.
+2. Push this repo to your own GitHub, then create a Render Blueprint from `render.yaml` (or use
+   `dash_app/Dockerfile` directly on Railway/Fly.io/anywhere that runs a Dockerfile). Fill in the
+   env vars from `.env.example` in the host's dashboard.
+3. Or run it entirely locally - see [Running locally](#running-locally) below.
 
 ---
 
 ## Architecture
 
-```
-Raw CSV (23K transactions, 200 users, 13 categories, 2020–2024)
-    │
-    ▼
-HDFS /user/fintech/transactions/
-    │
-    ├──▶ Hive external tables (SQL access)
-    │
-    ├──▶ MapReduce (06)
-    │       Hadoop Streaming - spend aggregation by category
-    │       Output: total, count, avg, spend tier per category
-    │       → /user/fintech/mr_category_agg/
-    │
-    ├──▶ Spark Feature Engineering (03)
-    │       Rolling 7/10/30-day spend windows per user-category
-    │       Q4 YoY spend velocity (Q4 2024 / Q4 2023)
-    │       → /user/fintech/baseline/
-    │       → /user/fintech/velocity/
-    │
-    ├──▶ Forecasting (04)
-    │       Baseline (active): per-user recency-weighted monthly average
-    │         × velocity adjustment
-    │       SARIMAX (comparison): category-level daily model for side-by-side
-    │         validation vs baseline
-    │       Prophet: code path retained but disabled by default
-    │       → /user/fintech/forecasts/          (7 / 15 / 30-day horizons)
-    │       → /user/fintech/forecast_eval/      (MAPE per category + model)
-    │
-    └──▶ Collaborative Filtering (05)
-            Feature matrix: forecast + avg_txn + n_txn + max_30d + velocity
-            User-user cosine similarity (top-10 neighbors)
-            Budget cap = (60% own + 40% CF) × velocity × 1.15 buffer
-            → /user/fintech/recommendations/
+Two run modes, one shared analytics core (`core/`), so "the deployed app" and "the local
+pipeline" aren't two different codebases:
 
-FastAPI   ──▶  reads HDFS outputs via WebHDFS, serves in-memory
-Streamlit ──▶  calls FastAPI, renders spending overview / forecasts / budget caps
 ```
+                         core/                    (PySpark, master("local[*]") - no HDFS/YARN)
+                         ├── spark_session.py   shared local-mode SparkSession
+                         ├── data_loader.py     any transactions CSV -> canonical schema
+                         ├── forecast_engine.py backtested per-category model choice + serving
+                         ├── recommender.py     collaborative filtering + cold-start blending
+                         ├── anomaly.py         z-score + isolation forest, arbitrary window
+                         ├── health_score.py    composite 0-100 score, arbitrary window
+                         ├── peer_bench.py      percentile + CF delta vs. reference population
+                         └── streaming/
+                             ├── event_bus.py       KafkaEventBus (real) / InMemoryEventBus (dev fallback)
+                             └── window_consumer.py incremental rolling-window state
+
+        ┌─────────────────────────────────┐        ┌────────────────────────────────────┐
+        │  Deployed app (Dash + gunicorn) │        │  Local pipeline (docker compose)    │
+        ├─────────────────────────────────┤        ├────────────────────────────────────┤
+        │ dash_app/ imports core/         │        │ Same core/, same Dockerfile pattern │
+        │ directly, in one container:     │        │ + Kafka/Redpanda container, its own │
+        │  - upload -> live core/ compute │        │   perpetual stream-consumer service │
+        │  - background thread runs a     │        │ FastAPI (api/) exposes /upload and  │
+        │    real always-on Kafka         │        │   /agent/chat for local parity      │
+        │    consumer against a managed   │        │                                     │
+        │    broker (Upstash/Confluent)   │        │                                     │
+        │  - Claude agent via Anthropic   │        │                                     │
+        │    SDK                          │        │                                     │
+        └─────────────────────────────────┘        └────────────────────────────────────┘
+```
+
+**Why no Hadoop cluster.** PySpark's own parallel execution (`groupBy(...).applyInPandas(...)`
+across local cores) is genuinely distributed compute - it just doesn't need HDFS or YARN to get
+it. `SparkSession.builder.master("local[*]")` is a JVM library call inside the same process, so
+it runs inside a single deployed container. Dropping the Hadoop/HDFS/YARN/Hive layer wasn't a
+compromise for deployability - nothing was using its distributed-filesystem properties at 23K
+rows; the part that mattered (parallel execution) now runs everywhere, including production.
+
+**Why Kafka is real, not decorative.** `KafkaEventBus` talks to any Kafka wire-compatible broker
+- a local Redpanda container for the docker-compose pipeline, a managed Upstash/Confluent Cloud
+cluster for the deployed app. On upload, transactions are actually published to the
+`transactions.raw` topic; a background thread (deployed app) or a dedicated `stream-consumer`
+container (local pipeline) consumes them and builds rolling 7/30/365-day window state
+incrementally in SQLite - not recomputed from the uploaded file directly. `InMemoryEventBus` is
+only a dev-convenience fallback for before you've set up a broker.
+
+---
+
+## Fixing the forecast (this used to be the whole reason for this rewrite)
+
+The old baseline model ran at ~41% mean WAPE, validated on a single noisy 13-day window, and
+its own per-category backtest winner (SARIMAX won 5/13 categories) was computed but never
+actually served - the app always forced the baseline model regardless of what the evaluation
+said. `core/forecast_engine.py` fixes both problems:
+
+- **Walk-forward backtest**, 6 folds, each a fixed 13-day holdout - not one lucky/unlucky window.
+- **The winner is actually served.** Whichever of three candidates wins a category's backtest is
+  what real forecasts use for that category, per category, not a single model forced everywhere.
+- **A new candidate**, `hierarchical`: the user's own recency-weighted trend, empirical-Bayes
+  shrunk toward the category trend scaled by the user's historical spend share, weighted by
+  their transaction count - sparse users lean on the category signal, active users lean on their
+  own trend. (The old approach forecast at the category level only and split by a static spend
+  share, discarding user-level trend entirely for SARIMAX/Prophet-routed categories.)
+- **Prophet dropped.** It was the worst performer (86% mean APE in the original evaluation) and a
+  heavy native dependency (cmdstan) that's painful to deploy. `baseline` (recency-weighted EWMA)
+  and `sarimax` (category-level, allocated by spend share) remain as real contenders.
+- **Confidence intervals** from backtest-fold residuals, via `scipy.stats`.
+
+**Backtest results** (mean WAPE across 6 folds, winner per category - `Housing and Utilities`
+excluded from both eras: its Jan-2025 per-transaction average differs from its own training
+data by >2x, a data-quality issue unrelated to modeling):
+
+| Category | Old (baseline forced, 1 window) | New (winner served, 6-fold) | New winner |
+| --- | --- | --- | --- |
+| Gifts | 15.7% | 25.4% | baseline |
+| Groceries | 19.7% (SARIMAX won, unused) | 37.6% | hierarchical |
+| Food | 10.0% | 26.9% | baseline |
+| Personal Hygiene | 16.2% | 34.1% | baseline |
+| Subscriptions | 28.5% | 32.1% | sarimax |
+| Transportation | 29.8% (SARIMAX won, unused) | 25.4% | sarimax |
+| Shopping | 31.3% (SARIMAX won, unused) | 24.2% | sarimax |
+| Medical/Dental | 52.6% | 16.1% | hierarchical |
+| Fitness | 40.5% | 33.6% | hierarchical |
+| Travel | 65.3% | 39.6% | sarimax |
+| Hobbies | 82.4% | 48.0% | sarimax |
+| Friend Activities | 80.5% | 36.6% | baseline |
+| **Mean (clean categories)** | **41.1% WAPE** | **31.6% WAPE** | |
+
+These aren't apples-to-apples single numbers - the old column is one 13-day window (noisy by
+construction) and the new column is a 6-fold average (far more robust), so part of the gap is
+"the old number was never a reliable estimate to begin with." What's unambiguous: Medical/Dental,
+Fitness, Travel, Hobbies, and Friend Activities all improve substantially now that they're
+actually served by their real backtest winner instead of a forced baseline.
+
+Regenerate this yourself: `python scripts/01_backtest_and_forecast.py` (takes a few minutes -
+SARIMAX candidate search runs per category, per fold).
+
+---
+
+## Collaborative filtering + cold start
+
+`core/recommender.py` keeps user-based CF (cosine similarity over a 65-feature matrix: 5
+features x 13 categories - forecast, avg transaction, transaction count, peak 30-day spend,
+spend velocity - min-max normalized). New: **cold-start handling**. An uploaded user - possibly
+just one person with a few weeks of history - gets matched against the 200-user reference
+population (`frontend/data/reference_feature_matrix.csv`) instead of against themselves. This
+matters more than it sounds: normalizing a single row against its own min/max makes every
+feature collapse to 0 (min == max == the one value present), which silently zeroes out
+similarity and made every cold-start recommendation fall back to "just your own forecast" - a
+real bug caught while building this, fixed by always normalizing against the larger reference
+population's column statistics. The same pattern (`reference_health_raw.csv`,
+`baseline.json`-derived category totals) fixes the equivalent issue in health-score normalization
+and peer-percentile ranking.
+
+---
+
+## Upload your own data
+
+The "Upload Your Data" tab (and `POST /upload` on the local FastAPI) accepts a CSV with a date,
+category, and amount column - common header variants (`Amount`, `Transaction Date`, `Date`,
+etc.) are matched automatically, not just this project's exact column names. Any day, month, or
+year range works: pick "All uploaded data," "Last 30/90/365 days," and every `core/` function
+takes that window directly - there's no separate code path for different granularities. Model
+selection (which model family per category) comes from the pre-learned backtest config; serving
+computes fresh numbers from whatever data you gave it, whether that's the reference population
+or your own file.
+
+---
+
+## Ask Your Data (Claude agent)
+
+A tool-calling chat agent (`agent/`) answers free-form questions about the current customer's
+data - "why is my Travel forecast so high," "how do I compare to similar users on groceries."
+Every number in its answer comes from a tool call into the same computed data shown in the other
+tabs (`agent/tools.py` wraps `core/` outputs; the LLM has no other way to produce a number). A
+cheap narrative summary (Haiku) runs automatically on the Overview tab. Both features check
+`ANTHROPIC_API_KEY` at runtime and simply don't appear if it's unset - the rest of the app is
+fully functional without one.
+
+---
+
+## Running locally
+
+### Option A: just the app, no Docker
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r dash_app/requirements.txt
+brew install openjdk@17   # or any JDK 17+ - PySpark needs one, even in local mode
+export JAVA_HOME=$(brew --prefix openjdk@17)
+python dash_app/app.py    # http://localhost:8501
+```
+
+Set `ANTHROPIC_API_KEY` / `KAFKA_BOOTSTRAP_SERVERS` per `.env.example` to enable the chat agent
+and real Kafka; both are optional.
+
+### Option B: full pipeline via Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+Starts: Redpanda (`kafka`), FastAPI (`api`, [localhost:8000/docs](http://localhost:8000/docs)),
+the always-on rolling-window consumer (`stream-consumer`), and the Dash app (`dash`,
+[localhost:8501](http://localhost:8501)).
+
+### Regenerating the demo dataset
+
+```bash
+python scripts/01_backtest_and_forecast.py   # walk-forward backtest -> model_config.json, forecasts.json
+python scripts/02_recommend_budgets.py       # collaborative filtering -> budget_caps.json
+python scripts/03_detect_anomalies.py        # z-score + isolation forest -> anomalies.json
+python scripts/04_health_scores.py           # composite score -> health_scores.json
+python scripts/05_peer_benchmarks.py         # peer comparison -> peer_benchmarks.json
+```
+
+Each script is a thin wrapper around `core/` - the actual logic lives there and is unit-testable
+without Docker, HDFS, or a browser.
 
 ---
 
 ## Dataset
 
-- **23,000 transactions**, 200 customers, 13 spending categories
-- Date range: January 2020 – December 2024 (2 years real + 3 years synthetic)
-- Synthetic history generated with realistic seasonality (holiday spikes, summer travel bumps, January gym surges) and COVID-era suppression in 2020
-- Categories: Fitness, Food, Friend Activities, Gifts, Groceries, Hobbies, Housing & Utilities, Medical/Dental, Personal Hygiene, Shopping, Subscriptions, Transportation, Travel
+- 23,000 transactions, 200 customers, 13 spending categories
+- Date range: January 2020 - January 2025 (2 years real + 3 years synthetic, generated by
+  `scripts/00_generate_synthetic_history.py` with realistic seasonality - holiday spikes, summer
+  travel bumps, January gym surges - and COVID-era suppression in 2020)
+- Categories: Fitness, Food, Friend Activities, Gifts, Groceries, Hobbies, Housing & Utilities,
+  Medical/Dental, Personal Hygiene, Shopping, Subscriptions, Transportation, Travel
 
 ---
 
-## Forecasting Design
+## API endpoints (local FastAPI, `api/main.py`)
 
-Current runtime behavior in `scripts/04_time_series_forecast.py`:
-
-- **Active serving model**: recency-weighted baseline for all 13 categories
-- **Comparison model**: SARIMAX evaluation on baseline-routed categories
-- **Prophet status**: retained in code, but disabled by default (`PROPHET_CATS = set()`)
-
-Why baseline is the serving path: on this dataset, it remains more stable for per-user
-monthly spend forecasting and avoids synthetic seasonality overfit.
-
-**Recency-weighted baseline** - per-user monthly spend history, exponentially weighted
-toward recent months (λ=0.15), with a Q4 YoY velocity adjustment on top:
-
-- `forecast = weighted_monthly_avg × (horizon_days / 30) × velocity`
-- Recency decay: last month weight=1.0, 6mo ago=0.41, 12mo ago=0.17
-- Velocity = Q4-2024 / Q4-2023 spend ratio, clamped to [0.5, 2.0]
-
-**Model comparison:**
-
-The pipeline now prints side-by-side metrics for Prophet, baseline, and SARIMAX
-(MAPE, WAPE, RMSE), with per-category winners on the clean evaluation set. Baseline
-remains the default forecast source used for downstream recommendations.
-
-Latest comparison from `scripts/04_time_series_forecast.py`:
-
-| Model    | Clean-set mean APE | Clean-set WAPE | Clean-set RMSE |
-| -------- | ------------------ | -------------- | -------------- |
-| Baseline | 41.3%              | 41.1%          | $4,512         |
-| Prophet  | 86.1%              | 62.2%          | $4,970         |
-| SARIMAX  | 43.2%              | 37.2%          | $3,472         |
-
-Interpretation: Prophet is still available for comparison, but it is currently the
-least competitive on this dataset. Baseline remains the serving default, and SARIMAX
-is the strongest aggregate performer on WAPE/RMSE.
-
-**Per-category winners** (clean evaluation set, lowest APE):
-
-| Model    | Categories Won | Example Winners             |
-| -------- | -------------- | --------------------------- |
-| SARIMAX  | 5              | Gifts (3.2%), Groceries (5.1%), Food (10.0%) |
-| Baseline | 4              | Subscriptions (28.5%), Transportation (35.1%) |
-| Prophet  | 3              | Gifts (3.2%), Groceries (5.1%), Personal Hygiene (16.2%) |
-
-**Detailed category-wise APE** (Jan 1–13 validation window):
-
-Top performers (APE < 30%):
-- Gifts: Prophet 3.2%, Baseline 15.7%, SARIMAX 28.3%
-- Groceries: Prophet 5.1%, Baseline 26.0%, SARIMAX 19.7%
-- Food: Baseline 10.0%, SARIMAX 26.0%, Prophet 23.5%
-- Personal Hygiene: Baseline 16.2%, SARIMAX 25.0%, Prophet 32.5%
-- Subscriptions: Baseline 28.5%, SARIMAX 32.6%, Prophet 22.7%
-
-Moderate performers (30% ≤ APE < 70%):
-- Transportation: Baseline 35.1%, SARIMAX 29.8%, Prophet 117.8%
-- Shopping: Baseline 42.4%, SARIMAX 31.3%, Prophet 35.2%
-- Medical/Dental: Baseline 52.6%, SARIMAX 48.2%, Prophet 230.1%
-- Fitness: Baseline 40.5%, SARIMAX 57.9%, Prophet 164.4%
-
-Weaker performers (APE ≥ 70%):
-- Travel: Baseline 65.3%, SARIMAX 71.4%, Prophet 120.7%
-- Hobbies: Baseline 82.4%, SARIMAX 77.2%, Prophet 179.0%
-- Friend Activities: Baseline 80.5%, SARIMAX 70.8%, Prophet 98.7%
-
-*Note: Housing & Utilities excluded from analysis (⚠ 3× inflation in Jan 2025 vs training data)*
----
-
-## Personalized Forecast Distribution
-
-
-- Baseline forecast uses each user's own monthly series with recency decay
-- Velocity adjustment scales results using Q4 YoY trend (`spend_velocity`, clamped)
-
-Note: Prophet and SARIMAX are retained in code for model comparison and experimentation,
-but only the baseline forecast is active in downstream recommendations.
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/health` | Liveness + demo dataset size |
+| GET | `/users` | List demo customer IDs |
+| GET | `/categories` | List demo categories |
+| GET | `/users/{id}/view` | Baseline, forecasts, budget caps, health, anomalies, peer benchmark for one demo customer |
+| GET | `/anomalies` | Platform-wide anomaly alerts (optional `?severity=`) |
+| POST | `/upload` | Upload a CSV, run the live pipeline, get back a `cache_key` |
+| GET | `/uploads/{cache_key}/users/{id}/view` | Same shape as `/users/{id}/view`, for an uploaded customer |
+| GET | `/uploads/{cache_key}/users/{id}/rolling-windows?category=` | Kafka-consumer-built rolling 7/30/365-day sums |
+| POST | `/agent/chat` | `{customer_id, message, history?, cache_key?}` -> tool-calling chat response |
 
 ---
 
-## Collaborative Filtering
-
-User-based CF with a **65-feature matrix** per user (5 features × 13 categories):
-
-- `forecast_30d` - 30-day forecast (baseline active; SARIMAX comparison available)
-- `avg_per_transaction` - historical average transaction size
-- `num_transactions` - transaction frequency
-- `max_30d_spend` - peak 30-day spend
-- `spend_velocity` - Q4 YoY spend ratio (accelerating or decelerating)
-
-Features are min-max normalized before cosine similarity so no single feature dominates. Top-10 nearest neighbors. Budget cap = (60% own + 40% CF) × velocity × 1.15 safety buffer.
-
----
-
-## Services (local cluster)
-
-| Service              | URL                        |
-| -------------------- | -------------------------- |
-| Streamlit dashboard  | http://localhost:8501      |
-| FastAPI + docs       | http://localhost:8000/docs |
-| HDFS NameNode        | http://localhost:9870      |
-| Spark Master         | http://localhost:8080      |
-| YARN ResourceManager | http://localhost:8088      |
-
----
-
-## Running the Pipeline
-
-### 1. Start the cluster
-
-```bash
-docker compose up -d
-```
-
-Starts: Hadoop (namenode, datanode, resourcemanager, nodemanager), Hive, Spark, FastAPI, Streamlit.
-
-### 2. Generate and load data (one-time)
-
-```bash
-# Generate 5-year dataset with synthetic history
-python3 scripts/00_generate_synthetic_history.py
-
-# Upload to HDFS
-docker cp data/spending_patterns_5yr.csv fintech-spending-analyzer-namenode-1:/tmp/
-docker exec fintech-spending-analyzer-namenode-1 bash -c "
-  hdfs dfs -mkdir -p /user/fintech/transactions
-  hdfs dfs -chmod -R 777 /user/fintech
-  hdfs dfs -put -f /tmp/spending_patterns_5yr.csv /user/fintech/transactions/
-"
-```
-
-### 3. Create Hive tables (one-time)
-
-```bash
-docker exec -it fintech-spending-analyzer-hive-1 \
-  beeline -u jdbc:hive2://localhost:10000 -f /tmp/02_create_hive_tables.sql
-```
-
-### 4. Run the pipeline
-
-```bash
-# Feature engineering (Spark)
-docker exec fintech-spending-analyzer-spark-1 bash -c "
-  export SPARK_HOME=/opt/spark
-  export PYTHONPATH=\$SPARK_HOME/python:\$SPARK_HOME/python/lib/py4j-0.10.9.7-src.zip
-  python3 /tmp/03_feature_engineering.py
-"
-
-# Forecasting (baseline + SARIMAX comparison; Prophet disabled by default)
-docker exec fintech-spending-analyzer-api-1 bash -c "
-  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
-  python3 /tmp/04_time_series_forecast.py
-"
-
-# Collaborative filtering
-docker exec fintech-spending-analyzer-api-1 bash -c "
-  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
-  python3 /tmp/05_collaborative_filter.py
-"
-
-# MapReduce category aggregation
-bash scripts/06_run_mapreduce.sh
-```
-
-### 5. Reload API cache
-
-```bash
-curl -X POST http://localhost:8000/reload
-```
-
----
-
-## API Endpoints
-
-| Method | Endpoint                     | Description                                              |
-| ------ | ---------------------------- | -------------------------------------------------------- |
-| GET    | `/users`                     | List all customer IDs                                    |
-| GET    | `/users/{id}/baseline`       | Historical spend by category                             |
-| GET    | `/users/{id}/forecasts`      | Forecasts (7/15/30-day)                                  |
-| GET    | `/users/{id}/budget-caps`    | CF budget recommendations                                |
-| GET    | `/categories`                | All spending categories                                  |
-| GET    | `/anomalies`                 | Platform-wide anomaly alerts (optional `?severity=high`) |
-| GET    | `/users/{id}/anomalies`      | Per-user anomaly alerts                                  |
-| GET    | `/users/{id}/peer-benchmark` | Per-user vs peer-average spend delta + percentiles       |
-| POST   | `/reload`                    | Refresh in-memory cache from HDFS                        |
-
----
-
-## Repository Structure
+## Repository structure
 
 ```
-├── data/
-│   └── spending_patterns_detailed.csv    # original 2yr real data (gitignored)
+├── core/                      # shared analytics engine - PySpark local mode, no Docker needed to run it
+│   ├── data_loader.py
+│   ├── forecast_engine.py
+│   ├── recommender.py
+│   ├── anomaly.py
+│   ├── health_score.py
+│   ├── peer_bench.py
+│   └── streaming/
+│       ├── event_bus.py
+│       └── window_consumer.py
+├── agent/                     # Claude tool-calling chat agent + narrative summaries
+│   ├── tools.py
+│   └── claude_agent.py
+├── dash_app/                  # deployed frontend (Dash)
+│   ├── app.py
+│   ├── render.py              # view dict -> Dash component tree, one function per tab
+│   ├── live.py                # runs core/ against an uploaded file
+│   └── data_store.py          # loads the pre-computed 200-user demo dataset
+├── api/                        # FastAPI serving layer, local pipeline only
+│   └── main.py
 ├── scripts/
-│   ├── 00_generate_synthetic_history.py  # extends dataset to 5yr with seasonality
-│   ├── 01_load_to_hdfs.sh
-│   ├── 02_create_hive_tables.sql
-│   ├── 03_feature_engineering.py         # Spark - rolling windows + velocity
-│   ├── 04_time_series_forecast.py        # baseline forecasting + SARIMAX comparison (Prophet path retained)
-│   ├── 05_collaborative_filter.py        # user-based CF - budget caps
-│   ├── 06_mapreduce_mapper.py
-│   ├── 06_mapreduce_reducer.py
-│   ├── 06_run_mapreduce.sh
-│   ├── 07_financial_health_score.py   # composite 0-100 score across 4 dimensions
-│   ├── 08_anomaly_detection.py        # Z-score + Isolation Forest mid-month pace check
-│   └── 09_peer_benchmarking.py        # CF neighbor delta + category percentile insights
-├── api/
-│   ├── main.py                           # FastAPI serving layer
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── app.py                            # Streamlit dashboard
-│   ├── data/                             # pre-computed JSON for live demo
-│   ├── requirements.txt
-│   └── Dockerfile
-├── docker-compose.yml
-└── config                                # Hadoop cluster config
+│   ├── 00_generate_synthetic_history.py
+│   ├── 01_backtest_and_forecast.py
+│   ├── 02_recommend_budgets.py
+│   ├── 03_detect_anomalies.py
+│   ├── 04_health_scores.py
+│   ├── 05_peer_benchmarks.py
+│   └── 06_stream_consumer.py   # perpetual local Kafka consumer
+├── frontend/data/               # pre-computed demo dataset (checked in)
+├── docker-compose.yml           # Redpanda + api + stream-consumer + dash
+├── render.yaml                  # Render Blueprint for the deployed app
+└── .env.example
 ```

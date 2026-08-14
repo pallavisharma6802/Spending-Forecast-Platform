@@ -1,0 +1,98 @@
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #0e1117;
+  color: #fafafa;
+  margin: 0;
+}
+
+.app-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #333;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.caption {
+  color: #9aa0a6;
+  font-size: 13px;
+}
+
+.success-text {
+  color: #2ecc71;
+}
+
+.warning-text {
+  color: #f39c12;
+}
+
+.layout {
+  display: flex;
+}
+
+.sidebar {
+  width: 260px;
+  padding: 20px;
+  border-right: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px 28px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.col-4 { flex: 1 1 30%; min-width: 260px; }
+.col-5 { flex: 1 1 38%; min-width: 260px; }
+.col-6 { flex: 1 1 45%; min-width: 300px; }
+.col-8 { flex: 1 1 60%; min-width: 320px; }
+.col-2 { flex: 0 0 auto; }
+
+.kpi-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 10px 0 18px;
+}
+
+.kpi-card {
+  background: #1a1d24;
+  border: 1px solid #2a2d36;
+  border-radius: 8px;
+  padding: 12px 18px;
+  min-width: 160px;
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.upload-box {
+  border: 2px dashed #444;
+  border-radius: 8px;
+  padding: 30px;
+  text-align: center;
+  cursor: pointer;
+  color: #9aa0a6;
+}
+
+.tabs-content {
+  margin-top: 16px;
+}
