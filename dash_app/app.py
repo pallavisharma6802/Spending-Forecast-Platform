@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import dash
 from dash import Input, Output, State, dcc, html
 
-from dash_app import live, render
+from dash_app import live, render, theme
 from dash_app.data_store import get_demo
 from core.health_score import ESSENTIALS
 from core.streaming.event_bus import KafkaEventBus, get_event_bus
@@ -52,28 +52,43 @@ if claude_agent.is_configured():
     DEMO_TABS = DEMO_TABS + [("chat", "Ask Your Data")]
 
 app.layout = html.Div([
-    html.Div([html.H1("Spending Forecast & Recommendation Platform"),
-              html.P("PySpark (local mode) forecasting + collaborative filtering, backtested per category. "
-                     "Browse the 200-user demo set or upload your own transactions.", className="caption")],
-             className="app-header"),
+    html.Div([
+        html.Div([
+            html.Span(style={
+                "display": "inline-block", "width": "8px", "height": "8px", "borderRadius": "50%",
+                "background": "linear-gradient(135deg, #7c6cf6, #2dd4bf)", "marginRight": "10px",
+            }),
+            html.H1("Spending Forecast & Recommendation Platform", style={"display": "inline-block"}),
+        ]),
+        html.P(
+            "Backtested forecasting and collaborative filtering, per category. Browse the 200-user "
+            "demo set or upload your own transactions.",
+            className="caption",
+        ),
+    ], className="app-header"),
 
     html.Div([
         html.Div([
-            html.H4("Demo customer"),
+            html.H4("Demo Customer"),
             dcc.Dropdown(id="customer-dropdown", options=demo.users, value=(demo.users[0] if demo.users else None)),
             html.Hr(),
-            html.P("Stack", style={"fontWeight": 700}),
-            html.P("PySpark (local mode) - SARIMAX / recency-weighted / hierarchical shrinkage forecasting - "
-                   "collaborative filtering - Isolation Forest anomaly detection", className="caption"),
+            html.H4("Stack"),
+            html.P("PySpark local mode, backtested SARIMAX / recency-weighted / hierarchical shrinkage / "
+                   "inverse-error ensemble forecasting, collaborative filtering, isolation forest anomaly "
+                   "detection.", className="caption"),
             html.Hr(),
-            html.P("Dataset", style={"fontWeight": 700}),
-            html.P(f"{len(demo.users)} users - {len(demo.categories)} categories", className="caption"),
+            html.H4("Dataset"),
+            html.P(f"{len(demo.users)} users, {len(demo.categories)} categories", className="caption"),
         ], className="sidebar"),
 
         html.Div([
-            dcc.Tabs(id="main-tabs", value="overview", children=[
-                dcc.Tab(label=label, value=key) for key, label in DEMO_TABS
-            ] + [dcc.Tab(label="Upload Your Data", value="upload")]),
+            dcc.Tabs(
+                id="main-tabs", value="overview", className="demo-tabs",
+                children=[
+                    dcc.Tab(label=label, value=key, className="demo-tab", selected_className="demo-tab--selected")
+                    for key, label in DEMO_TABS
+                ] + [dcc.Tab(label="Upload Your Data", value="upload", className="demo-tab", selected_className="demo-tab--selected")],
+            ),
             html.Div(id="tab-content", className="tabs-content"),
         ], className="main-content"),
     ], className="layout"),
@@ -96,7 +111,7 @@ def _whatif_controls(view):
             dcc.Slider(id="whatif-multiplier", min=0.1, max=3.0, step=0.05, value=1.0,
                        marks={0.1: "0.1x", 1.0: "1.0x", 2.0: "2.0x", 3.0: "3.0x"}),
         ], className="col-6"),
-    ], className="row")
+    ], className="row card", style={"padding": "18px 20px", "marginBottom": "8px"})
 
 
 @functools.lru_cache(maxsize=256)
@@ -108,9 +123,15 @@ def _narrative_banner(text: str | None):
     if not text:
         return None
     return html.Div([
-        html.Span("Claude's take: ", style={"fontWeight": 700}), text,
-    ], style={"padding": "12px 16px", "borderRadius": "8px", "background": "#4F8BF922",
-              "border": "1px solid #4F8BF9", "marginBottom": "16px"})
+        html.Span("Model summary  ", style={
+            "fontWeight": 700, "fontSize": "11px", "color": theme.ACCENT,
+            "textTransform": "uppercase", "letterSpacing": "0.05em",
+        }),
+        html.Div(text, style={"marginTop": "6px", "fontSize": "13.5px", "color": theme.TEXT}),
+    ], style={
+        "padding": "14px 18px", "borderRadius": "12px", "background": theme.ACCENT_SOFT,
+        "border": f"1px solid {theme.ACCENT}", "marginBottom": "20px",
+    })
 
 
 @app.callback(Output("tab-content", "children"), Input("main-tabs", "value"), Input("customer-dropdown", "value"))
@@ -286,14 +307,16 @@ def _chat_layout():
     return html.Div([
         html.P(
             "Ask a question about this customer's spending. Every number the assistant gives you comes from "
-            "a tool call into the same forecast/health/anomaly/peer data shown in the other tabs - it can't "
-            "invent figures.",
+            "a tool call into the same forecast, health, anomaly, and peer data shown in the other tabs - it "
+            "cannot invent figures.",
             className="caption",
         ),
-        html.Div(id="chat-messages", style={"marginBottom": "12px"}),
-        dcc.Textarea(id="chat-input", placeholder="e.g. Why is my Travel forecast so high?",
-                     style={"width": "100%", "height": "60px"}),
-        html.Button("Send", id="chat-send", n_clicks=0, style={"marginTop": "8px"}),
+        html.Div(id="chat-messages"),
+        html.Div([
+            dcc.Textarea(id="chat-input", placeholder="Why is my Travel forecast so high?",
+                         style={"width": "100%", "height": "60px"}),
+            html.Button("Send", id="chat-send", n_clicks=0, style={"marginTop": "10px"}),
+        ], className="card", style={"padding": "16px 18px", "marginTop": "12px"}),
     ])
 
 
@@ -327,9 +350,12 @@ def handle_chat(n_clicks, message, history, customer_id):
 
     bubbles = [
         html.Div(text, style={
-            "padding": "8px 12px", "borderRadius": "8px", "marginBottom": "6px", "maxWidth": "80%",
+            "padding": "10px 14px", "borderRadius": "10px", "marginBottom": "8px", "maxWidth": "78%",
+            "fontSize": "13.5px", "lineHeight": "1.5",
             "marginLeft": "auto" if role == "user" else "0",
-            "background": "#4F8BF9" if role == "user" else "#2a2d36",
+            "background": theme.ACCENT if role == "user" else theme.CARD,
+            "border": "none" if role == "user" else f"1px solid {theme.BORDER}",
+            "color": "white" if role == "user" else theme.TEXT,
         })
         for role, text in display
     ]

@@ -1,6 +1,6 @@
-"""Pure functions: view dict -> Dash component tree. One function per tab,
-each a direct port of the corresponding section in the retired
-frontend/app.py (Streamlit), same Plotly figures, same layout intent."""
+"""Pure functions: view dict -> Dash component tree. One function per tab.
+Figures pick up the dark theme automatically from theme.py (imported for its
+side effect of registering the default Plotly template)."""
 
 import numpy as np
 import pandas as pd
@@ -8,9 +8,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import dash_table, dcc, html
 
-GRADE_COLOR = {"A": "#2ecc71", "B": "#27ae60", "C": "#f39c12", "D": "#e67e22", "F": "#e74c3c"}
-SEV_COLOR = {"high": "#e74c3c", "medium": "#e67e22", "low": "#f1c40f"}
-DIR_COLOR = {"above": "#e74c3c", "below": "#2ecc71", "neutral": "#95a5a6"}
+from dash_app import theme
+
+GRADE_COLOR = theme.GRADE_COLOR
+SEV_COLOR = theme.SEV_COLOR
+DIR_COLOR = theme.DIR_COLOR
 
 
 def kpi_row(items):
@@ -31,11 +33,14 @@ def _table(df: pd.DataFrame, columns=None):
     return dash_table.DataTable(
         data=df.to_dict("records"),
         columns=cols,
-        style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "left", "padding": "6px", "fontSize": "13px"},
         page_size=15,
         sort_action="native",
+        **theme.TABLE_STYLE,
     )
+
+
+def _card(*children):
+    return html.Div(list(children), className="card")
 
 
 def render_overview(view: dict):
@@ -53,9 +58,9 @@ def render_overview(view: dict):
 
     kpis = kpi_row([
         ("Total Historical Spend", f"${total_hist:,.0f}"),
-        ("30-Day Forecast (all categories)", f"${total_fc30:,.0f}"),
-        ("Top Spending Category", top_category),
-        ("Financial Health Score", health_score),
+        ("30-Day Forecast", f"${total_fc30:,.0f}"),
+        ("Top Category", top_category),
+        ("Health Score", health_score),
     ])
 
     if baseline.empty:
@@ -68,11 +73,12 @@ def render_overview(view: dict):
         labels={"total_spend": "Total Spend ($)", "category": "Category"},
     )
     fig.update_layout(showlegend=False, xaxis_tickangle=-30)
+    fig.update_traces(marker_line_width=0)
 
     table_df = sorted_bl[["category", "total_spend", "avg_per_transaction", "num_transactions", "max_30d_spend"]].round(2)
     table_df.columns = ["Category", "Total Spend ($)", "Avg per Txn ($)", "# Transactions", "Peak 30d Spend ($)"]
 
-    return html.Div([kpis, dcc.Graph(figure=fig), _table(table_df)])
+    return html.Div([kpis, _card(dcc.Graph(figure=fig)), html.Div(_table(table_df), style={"marginTop": "16px"})])
 
 
 def render_forecasts(view: dict):
@@ -85,22 +91,22 @@ def render_forecasts(view: dict):
         color=forecasts["horizon_days"].astype(str), barmode="group",
         title="Forecasted Spend by Category & Horizon",
         labels={"forecasted_spend": "Forecasted Spend ($)", "color": "Horizon (days)"},
-        color_discrete_sequence=px.colors.qualitative.Set2,
     )
     fig.update_layout(xaxis_tickangle=-30, legend_title="Horizon (days)")
+    fig.update_traces(marker_line_width=0)
 
     model_note = ""
     if "model_used" in forecasts.columns:
         models = forecasts["model_used"].value_counts()
-        model_note = " · ".join(f"{m}: {n} rows" for m, n in models.items())
+        model_note = " | ".join(f"{m}: {n} rows" for m, n in models.items())
 
     pivot = forecasts.pivot_table(index="category", columns="horizon_days", values="forecasted_spend").reset_index()
     pivot.columns = ["Category"] + [f"{c}d ($)" for c in pivot.columns[1:]]
 
     return html.Div([
-        html.P(f"Model(s) used: {model_note}", className="caption") if model_note else None,
-        dcc.Graph(figure=fig),
-        _table(pivot.round(2)),
+        html.P(f"Models used: {model_note}", className="caption") if model_note else None,
+        _card(dcc.Graph(figure=fig)),
+        html.Div(_table(pivot.round(2)), style={"marginTop": "16px"}),
     ])
 
 
@@ -116,14 +122,14 @@ def render_budget(view: dict):
         title="Own Forecast vs. Budget Cap",
         labels={"own_forecast_30d": "Own Forecast ($)", "recommended_budget_cap": "Budget Cap ($)"},
     )
-    fig2.update_traces(textposition="top center")
+    fig2.update_traces(textposition="top center", marker=dict(color=theme.ACCENT, line=dict(width=0)))
 
     table_df = sorted_caps[["category", "own_forecast_30d", "cf_predicted_spend", "spend_velocity", "recommended_budget_cap"]].round(2)
     table_df.columns = ["Category", "Own Forecast ($)", "CF Predicted ($)", "Velocity", "Budget Cap ($)"]
 
     return html.Div([
         html.Div([
-            html.Div(dcc.Graph(figure=fig2), className="col-6"),
+            html.Div(_card(dcc.Graph(figure=fig2)), className="col-6"),
             html.Div(_table(table_df), className="col-6"),
         ], className="row"),
     ])
@@ -137,20 +143,19 @@ def render_health(view: dict):
 
     h = health_row.iloc[0]
     score, grade, label = float(h["score"]), h["grade"], h["label"]
-    color = GRADE_COLOR.get(grade, "#95a5a6")
+    color = GRADE_COLOR.get(grade, theme.MUTED)
 
     score_card = html.Div([
-        html.Div(f"{score:.0f}", style={"fontSize": "64px", "fontWeight": 800, "color": color}),
-        html.Div(f"Grade {grade}", style={"fontSize": "24px", "fontWeight": 700, "color": color}),
-        html.Div(label, style={"fontSize": "15px"}),
-        html.Div("out of 100", style={"fontSize": "12px", "color": "#888"}),
-    ], style={"textAlign": "center", "padding": "20px", "borderRadius": "12px",
-              "border": f"2px solid {color}", "background": color + "18"})
+        html.Div(f"{score:.0f}", className="score-value", style={"color": color}),
+        html.Div(f"Grade {grade}", className="score-grade", style={"color": color}),
+        html.Div(label, className="score-label"),
+        html.Div("out of 100", className="score-label"),
+    ], className="score-hero")
 
-    fig_hist = px.histogram(health_all, x="score", nbins=20, color_discrete_sequence=["#4F8BF9"],
-                             labels={"score": "Health Score"})
-    fig_hist.add_vline(x=score, line_dash="dash", line_color=color, annotation_text="You")
-    fig_hist.update_layout(showlegend=False, height=220, bargap=0.05, margin=dict(t=20, b=20, l=10, r=10))
+    fig_hist = px.histogram(health_all, x="score", nbins=20, labels={"score": "Health Score"})
+    fig_hist.update_traces(marker_color=theme.ACCENT, marker_line_width=0)
+    fig_hist.add_vline(x=score, line_dash="dash", line_color=color, annotation_text="You", annotation_font_color=color)
+    fig_hist.update_layout(showlegend=False, height=220, bargap=0.08, margin=dict(t=20, b=20, l=10, r=10))
 
     dims = {
         "Stability": float(h["stability_score"]), "Essentials Ratio": float(h["essentials_score"]),
@@ -159,16 +164,17 @@ def render_health(view: dict):
     dim_df = pd.DataFrame({"Dimension": list(dims.keys()), "Score": [round(v * 100, 1) for v in dims.values()]})
     fig_dims = px.bar(
         dim_df, x="Score", y="Dimension", orientation="h", color="Score",
-        color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"], range_color=[0, 100],
+        color_continuous_scale=[theme.ROSE, theme.AMBER, theme.TEAL], range_color=[0, 100],
         title="Dimension Breakdown (0-100)",
     )
+    fig_dims.update_traces(marker_line_width=0)
     fig_dims.update_layout(coloraxis_showscale=False, xaxis_range=[0, 100], height=280, margin=dict(t=40, b=20))
 
     signals = pd.DataFrame([
-        {"Signal": "Spend CV (stability)", "Value": f"{float(h['spend_cv']):.2f}", "Interpretation": "lower = more stable"},
-        {"Signal": "Essentials ratio", "Value": f"{float(h['essentials_ratio']):.0%}", "Interpretation": "ideal ~= 50% on necessities"},
-        {"Signal": "Avg MoM volatility", "Value": f"{float(h['mom_volatility']):.1f}x", "Interpretation": "lower = smoother month-to-month"},
-        {"Signal": "Savings gap", "Value": f"{float(h['savings_gap']):+.0%}", "Interpretation": "positive = spending below forecast"},
+        {"Signal": "Spend CV (stability)", "Value": f"{float(h['spend_cv']):.2f}", "Interpretation": "lower is more stable"},
+        {"Signal": "Essentials ratio", "Value": f"{float(h['essentials_ratio']):.0%}", "Interpretation": "ideal is about 50% on necessities"},
+        {"Signal": "Avg MoM volatility", "Value": f"{float(h['mom_volatility']):.1f}x", "Interpretation": "lower is smoother month to month"},
+        {"Signal": "Savings gap", "Value": f"{float(h['savings_gap']):+.0%}", "Interpretation": "positive means spending below forecast"},
     ])
 
     rank = int((health_all["score"] < score).sum()) + 1
@@ -177,20 +183,21 @@ def render_health(view: dict):
     fig_grades = px.bar(x=grade_dist.index, y=grade_dist.values, color=grade_dist.index,
                          color_discrete_map=GRADE_COLOR, labels={"x": "Grade", "y": "Users"},
                          title=f"Grade distribution across all {len(health_all)} users")
+    fig_grades.update_traces(marker_line_width=0)
     fig_grades.update_layout(showlegend=False, height=280, margin=dict(t=40, b=20))
 
     return html.Div([
         html.Div([
-            html.Div([score_card, dcc.Graph(figure=fig_hist)], className="col-4"),
-            html.Div([dcc.Graph(figure=fig_dims), _table(signals)], className="col-8"),
+            html.Div([score_card, html.Div(_card(dcc.Graph(figure=fig_hist)), style={"marginTop": "16px"})], className="col-4"),
+            html.Div([_card(dcc.Graph(figure=fig_dims)), html.Div(_table(signals), style={"marginTop": "16px"})], className="col-8"),
         ], className="row"),
         html.Hr(),
         kpi_row([
             ("Rank", f"#{rank} of {len(health_all)}"),
-            ("Better than", f"{100 - pct:.0f}% of users"),
-            ("Population median score", f"{health_all['score'].median():.1f}"),
+            ("Better Than", f"{100 - pct:.0f}% of users"),
+            ("Population Median", f"{health_all['score'].median():.1f}"),
         ]),
-        dcc.Graph(figure=fig_grades),
+        _card(dcc.Graph(figure=fig_grades)),
     ])
 
 
@@ -211,39 +218,40 @@ def render_anomalies(view: dict):
     else:
         cards.append(html.P(f"{len(user_alerts)} alert(s) detected.", className="warning-text"))
         for _, alert in user_alerts.sort_values("overage_pct", ascending=False).iterrows():
-            color = SEV_COLOR.get(alert["severity"], "#888")
+            color = SEV_COLOR.get(alert["severity"], theme.MUTED)
             cards.append(html.Div([
                 html.Div([
-                    html.B(f"{alert['category']} - "),
-                    html.Span(alert["severity"].upper(), style={"color": color, "fontWeight": 600}),
+                    html.B(f"{alert['category']} "),
+                    html.Span(alert["severity"].upper(), style={"color": color, "fontWeight": 700, "fontSize": "11px", "letterSpacing": "0.04em"}),
                 ]),
-                html.Div(alert["message"], style={"fontSize": "0.9em"}),
+                html.Div(alert["message"], style={"fontSize": "13px", "color": theme.MUTED, "marginTop": "4px"}),
                 kpi_row([
-                    ("Spent so far", f"${alert['window_spend']:,.0f}"),
+                    ("Spent So Far", f"${alert['window_spend']:,.0f}"),
                     ("Projected", f"${alert['projected_spend']:,.0f}"),
-                    ("Budget cap", f"${alert['budget_cap']:,.0f}" if alert["budget_cap"] else "-"),
+                    ("Budget Cap", f"${alert['budget_cap']:,.0f}" if alert["budget_cap"] else "-"),
                     ("Overage", f"+{alert['overage_pct']:.0f}%" if alert["overage_pct"] else "-"),
                 ]),
-            ], style={"borderLeft": f"4px solid {color}", "padding": "10px 16px", "marginBottom": "10px",
-                      "borderRadius": "4px", "background": color + "18"}))
+            ], className="alert-card", style={"borderLeftColor": color}))
 
     platform = []
     if not all_alerts.empty:
         platform.append(kpi_row([
-            ("Total alerts", str(len(all_alerts))),
-            ("Users affected", str(all_alerts["customer_id"].nunique())),
-            ("High-severity alerts", str(len(all_alerts[all_alerts["severity"] == "high"]))),
+            ("Total Alerts", str(len(all_alerts))),
+            ("Users Affected", str(all_alerts["customer_id"].nunique())),
+            ("High Severity", str(len(all_alerts[all_alerts["severity"] == "high"]))),
         ]))
         cat_counts = all_alerts["category"].value_counts().reset_index()
         cat_counts.columns = ["category", "alerts"]
         fig_cat = px.bar(cat_counts.head(10), x="alerts", y="category", orientation="h",
-                          title="Alerts by Category", color="alerts", color_continuous_scale="Reds")
-        fig_cat.update_layout(coloraxis_showscale=False, height=320, yaxis_title="")
+                          title="Alerts by Category")
+        fig_cat.update_traces(marker_color=theme.ROSE, marker_line_width=0)
+        fig_cat.update_layout(height=320, yaxis_title="")
 
         sev_counts = all_alerts["severity"].value_counts().reset_index()
         sev_counts.columns = ["severity", "count"]
         fig_sev = px.pie(sev_counts, names="severity", values="count", title="Alerts by Severity",
-                          color="severity", color_discrete_map=SEV_COLOR)
+                          color="severity", color_discrete_map=SEV_COLOR, hole=0.55)
+        fig_sev.update_traces(marker=dict(line=dict(color=theme.CARD, width=2)))
 
         top_table = all_alerts.nlargest(10, "overage_pct")[
             ["customer_id", "category", "severity", "projected_spend", "budget_cap", "overage_pct", "z_score"]
@@ -251,15 +259,15 @@ def render_anomalies(view: dict):
         top_table.columns = ["Customer", "Category", "Severity", "Projected ($)", "Cap ($)", "Overage %", "Z-score"]
 
         platform.append(html.Div([
-            html.Div(dcc.Graph(figure=fig_cat), className="col-6"),
-            html.Div(dcc.Graph(figure=fig_sev), className="col-6"),
+            html.Div(_card(dcc.Graph(figure=fig_cat)), className="col-6"),
+            html.Div(_card(dcc.Graph(figure=fig_sev)), className="col-6"),
         ], className="row"))
         platform.append(_table(top_table))
     else:
-        platform.append(html.P("No alerts in current period."))
+        platform.append(html.P("No alerts in the current period."))
 
     return html.Div([html.P(caption, className="caption"), html.Div(cards), html.Hr(),
-                      html.H4("Platform-wide alert summary"), html.Div(platform)])
+                      html.H4("Platform-Wide Alert Summary"), html.Div(platform)])
 
 
 def render_peer(view: dict):
@@ -274,40 +282,41 @@ def render_peer(view: dict):
     neutral = peer_df[peer_df["direction"] == "neutral"]
 
     kpis = kpi_row([
-        ("Categories above peers", str(len(above))),
-        ("Categories below peers", str(len(below))),
-        ("Categories in line", str(len(neutral))),
+        ("Above Peers", str(len(above))),
+        ("Below Peers", str(len(below))),
+        ("In Line", str(len(neutral))),
     ])
 
     chart_df = peer_df.sort_values("vs_peers_pct").copy()
     chart_df["color"] = chart_df["direction"].map(DIR_COLOR)
     fig_wf = go.Figure(go.Bar(
         x=chart_df["vs_peers_pct"], y=chart_df["category"], orientation="h",
-        marker_color=chart_df["color"],
+        marker=dict(color=chart_df["color"], line_width=0),
         text=chart_df["vs_peers_pct"].apply(lambda v: f"{v:+.0f}%"), textposition="outside",
     ))
-    fig_wf.update_layout(title="Your Forecast vs Peer Average (30-day)", xaxis_title="delta vs peers (%)",
+    fig_wf.update_layout(title="Your Forecast vs Peer Average (30-day)", xaxis_title="Delta vs Peers (%)",
                           height=420, margin=dict(l=160, t=50, b=30, r=60))
 
     melt_df = peer_df.melt(id_vars="category", value_vars=["own_forecast_30d", "peer_forecast_30d"],
                             var_name="source", value_name="amount")
     melt_df["source"] = melt_df["source"].map({"own_forecast_30d": "Your forecast", "peer_forecast_30d": "Peer average"})
     fig_comp = px.bar(melt_df, x="category", y="amount", color="source", barmode="group",
-                       color_discrete_map={"Your forecast": "#4F8BF9", "Peer average": "#f39c12"},
+                       color_discrete_map={"Your forecast": theme.ACCENT, "Peer average": theme.AMBER},
                        title="Your 30-Day Forecast vs Peer Average", labels={"amount": "Forecasted Spend ($)"})
+    fig_comp.update_traces(marker_line_width=0)
     fig_comp.update_layout(xaxis_tickangle=-30, legend_title="")
 
     insight_cards = []
     for row in peer_df.sort_values("vs_peers_pct", ascending=False, key=abs).itertuples():
-        color = DIR_COLOR.get(row.direction, "#888")
+        color = DIR_COLOR.get(row.direction, theme.MUTED)
         insight_cards.append(html.Div([
             html.B(f"{row.category}"),
             html.Span(f"{row.vs_peers_pct:+.0f}%", style={"float": "right", "color": color, "fontWeight": 700}),
-            html.Div(row.insight, style={"fontSize": "0.85em"}),
-        ], style={"borderLeft": f"3px solid {color}", "padding": "8px 12px", "marginBottom": "8px",
-                  "borderRadius": "4px", "background": color + "15"}))
+            html.Div(row.insight, style={"fontSize": "12.5px", "color": theme.MUTED, "marginTop": "4px"}),
+        ], className="insight-card", style={"borderLeftColor": color}))
 
-    return html.Div([kpis, dcc.Graph(figure=fig_wf), dcc.Graph(figure=fig_comp),
+    return html.Div([kpis, _card(dcc.Graph(figure=fig_wf)),
+                      html.Div(_card(dcc.Graph(figure=fig_comp)), style={"marginTop": "16px"}),
                       html.H4("Insights"), html.Div(insight_cards)])
 
 
@@ -375,16 +384,16 @@ def render_whatif(view: dict, category: str, multiplier: float, essentials: set)
 
     kpis = html.Div([
         html.Div([
-            html.Div("Baseline", style={"fontWeight": 700}),
-            html.Div(f"Monthly actual avg: ${actual_avg_monthly:,.0f}"),
+            html.Div("Baseline", style={"fontWeight": 700, "fontSize": "12px", "color": theme.MUTED, "textTransform": "uppercase", "letterSpacing": "0.04em"}),
+            html.Div(f"Monthly actual avg: ${actual_avg_monthly:,.0f}", style={"marginTop": "8px"}),
             html.Div(f"Health score: {original_score:.1f} ({h['grade']})"),
-        ], className="col-5"),
-        html.Div("->", className="col-2", style={"textAlign": "center", "fontSize": "24px", "paddingTop": "20px"}),
+        ], className="col-5 card", style={"padding": "16px 20px"}),
+        html.Div("->", className="col-2", style={"textAlign": "center", "fontSize": "22px", "paddingTop": "28px", "color": theme.MUTED}),
         html.Div([
-            html.Div("Scenario", style={"fontWeight": 700}),
-            html.Div(f"Monthly actual avg: ${adj_actual_monthly:,.0f} ({delta_fc:+,.0f})"),
+            html.Div("Scenario", style={"fontWeight": 700, "fontSize": "12px", "color": theme.ACCENT, "textTransform": "uppercase", "letterSpacing": "0.04em"}),
+            html.Div(f"Monthly actual avg: ${adj_actual_monthly:,.0f} ({delta_fc:+,.0f})", style={"marginTop": "8px"}),
             html.Div(f"Health score: {new_score:.1f} ({new_grade}) ({score_delta:+.1f} pts)"),
-        ], className="col-5"),
+        ], className="col-5 card", style={"padding": "16px 20px", "borderColor": theme.ACCENT}),
     ], className="row")
 
     dim_data = pd.DataFrame([
@@ -395,8 +404,9 @@ def render_whatif(view: dict, category: str, multiplier: float, essentials: set)
     ])
     dim_melt = dim_data.melt(id_vars="Dimension", var_name="Scenario", value_name="Score")
     fig_dims = px.bar(dim_melt, x="Score", y="Dimension", color="Scenario", barmode="group", orientation="h",
-                       color_discrete_map={"Before": "#555", "After": "#4F8BF9"},
-                       title="Health Score Dimensions - Before vs After", range_x=[0, 100])
+                       color_discrete_map={"Before": theme.MUTED, "After": theme.ACCENT},
+                       title="Health Score Dimensions: Before vs After", range_x=[0, 100])
+    fig_dims.update_traces(marker_line_width=0)
     fig_dims.update_layout(height=280, margin=dict(t=40, b=20, l=160))
 
     fc_df = user_fc30.reset_index()
@@ -405,15 +415,16 @@ def render_whatif(view: dict, category: str, multiplier: float, essentials: set)
     fc_df.loc[fc_df["category"] == category, "forecast"] = adjusted_cat_fc
     fc_df = fc_df.sort_values("forecast")
     fig_fc = px.bar(fc_df, x="forecast", y="category", color="type", orientation="h",
-                     color_discrete_map={"Unchanged": "#4F8BF9", "Adjusted": "#e67e22"},
-                     title="30-Day Forecast by Category (after adjustment)")
+                     color_discrete_map={"Unchanged": theme.MUTED, "Adjusted": theme.AMBER},
+                     title="30-Day Forecast by Category (After Adjustment)")
+    fig_fc.update_traces(marker_line_width=0)
     fig_fc.update_layout(height=400, margin=dict(l=160, t=50, b=20))
 
     explanation = []
     if category in essentials:
-        explanation.append(f"Essentials ratio: {float(h['essentials_ratio']):.1%} -> {new_ess_ratio:.1%}")
+        explanation.append(f"Essentials ratio: {float(h['essentials_ratio']):.1%} to {new_ess_ratio:.1%}")
     explanation.append(
-        f"Savings potential: gap {float(h['savings_gap']):+.1%} -> {new_savings_gap:+.1%}. "
+        f"Savings potential: gap {float(h['savings_gap']):+.1%} to {new_savings_gap:+.1%}. "
         f"Forecast stays fixed at ${original_forecast30:,.0f}/mo; actual spend moves from "
         f"${actual_avg_monthly:,.0f} to ${adj_actual_monthly:,.0f}/mo."
     )
@@ -421,10 +432,10 @@ def render_whatif(view: dict, category: str, multiplier: float, essentials: set)
     return html.Div([
         html.H4(f"Scenario: {category} at {multiplier:.2f}x baseline"),
         kpis, html.Hr(),
-        dcc.Graph(figure=fig_dims),
-        dcc.Graph(figure=fig_fc),
+        _card(dcc.Graph(figure=fig_dims)),
+        html.Div(_card(dcc.Graph(figure=fig_fc)), style={"marginTop": "16px"}),
         html.Details([
-            html.Summary("How the score was recalculated"),
-            html.Ul([html.Li(e) for e in explanation]),
-        ]),
+            html.Summary("How the score was recalculated", style={"cursor": "pointer", "color": theme.MUTED, "fontSize": "13px"}),
+            html.Ul([html.Li(e, style={"fontSize": "13px", "color": theme.MUTED, "marginTop": "4px"}) for e in explanation]),
+        ], style={"marginTop": "16px"}),
     ])

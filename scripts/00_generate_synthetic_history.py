@@ -83,7 +83,7 @@ SEASONALITY = {
 # Year-over-year base multiplier (relative to 2023 baseline)
 # Captures inflation + spending growth + COVID suppression in 2020
 YEAR_MULTIPLIER = {
-    2020: 0.78,   # COVID year — overall suppression
+    2020: 0.78,   # COVID year, overall suppression
     2021: 0.87,   # partial recovery
     2022: 0.94,   # near normal
     # 2023-2024 already in real data
@@ -163,7 +163,7 @@ for year in [2020, 2021, 2022]:
             days = sorted(rng.choice(days_in_month, size=n_txn, replace=False) + 1)
 
             for day in days:
-                # log-normal spend — mu/sigma from real data, scaled by seasonality
+                # log-normal spend, mu/sigma from real data, scaled by seasonality
                 scaled_mu    = mu * month_mult * covid_adj
                 scaled_sigma = max(sigma * month_mult * covid_adj, scaled_mu * 0.1)
                 # convert to log-normal params
@@ -224,8 +224,8 @@ combined = combined.rename(columns={
 })
 
 combined.to_csv(OUT_CSV, index=False)
-print(f"\nSaved {len(combined):,} rows → {OUT_CSV}")
-print(f"Date range: {combined['Transaction Date'].min()} → {combined['Transaction Date'].max()}")
+print(f"\nSaved {len(combined):,} rows -> {OUT_CSV}")
+print(f"Date range: {combined['Transaction Date'].min()} -> {combined['Transaction Date'].max()}")
 print(f"\nRows per year:")
 combined["year"] = pd.to_datetime(combined["Transaction Date"]).dt.year
 print(combined.groupby("year").size().to_string())
